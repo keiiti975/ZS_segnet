@@ -3,10 +3,11 @@
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import numpy as np
-import io
+from PIL import Image
 import os
 import os.path
-import random
+
+imsize = 224
 
 
 def make_dataset(input_dir, target_dir, filenames):
@@ -35,15 +36,16 @@ def make_dataset(input_dir, target_dir, filenames):
 class ImageFolderDenseFileLists(data.Dataset):
     """Main Class for Image Folder loader."""
 
-    def __init__(self, input_root='./data/train/input', target_root='./data/train/target',
+    def __init__(self, input_root='./data/train/input',
+                 target_root='./data/train/target',
                  filenames='./data/train', training=True, transform=None):
         """Init function."""
         # get the lists of images
         imgs = make_dataset(input_root, target_root, filenames)
 
         if len(imgs) == 0:
-            raise(RuntimeError("Found 0 images in subfolders of: " + input_root + "\n"
-                               "Supported image extensions are: " + ",".join(IMG_EXTENSIONS)))
+            raise(RuntimeError("Found 0 images in subfolders of: " +
+                               input_root + "\n"))
 
         self.input_root = input_root
         self.target_root = target_root
@@ -62,7 +64,7 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation(without ToTensor(),Resize())
         input_img = self.transform(input_img)
         transform = transforms.Compose(
-            [transforms.Resize([imsize,imsize]), transforms.ToTensor()])
+            [transforms.Resize([imsize, imsize]), transforms.ToTensor()])
         input_img = transform(input_img)
 
         if self.training:
@@ -87,8 +89,8 @@ class ImageFolderDenseFileLists(data.Dataset):
 
     def image_loader(self, path):
         """Load images."""
-        return io.imread(path)
+        return Image.open(path)
 
     def loader(self, path):
         """Load Default loader."""
-        return image_loader(path)
+        return self.image_loader(path)

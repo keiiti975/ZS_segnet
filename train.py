@@ -14,11 +14,11 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
-#########
+##########
 
 # import models
 import model.segnet as segnet
-import dataset_list.ImageFolderDenseFileLists as datasets
+import dataset_list as datasets
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
@@ -26,7 +26,7 @@ label_nbr = 91  # 出力次元数(COCOstuffの次元数)
 imsize = 224
 
 # Training settings
-parser = argparse.ArgumentParser(description='PyTorch SegNet example')
+parser = argparse.ArgumentParser(description='ZS_segnet')
 parser.add_argument('--batch-size', type=int, default=4, metavar='N',
                     help='input batch size for training (default: 4)')
 parser.add_argument('--epochs', type=int, default=300, metavar='N',
@@ -63,7 +63,7 @@ print(model)
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
 
-def train():
+def train(epoch, trainloader):
     # set model to train mode
     model.train()
 
@@ -101,25 +101,59 @@ def train():
         print("forward propagating ...")
 
         # shape output and target
-        output = torch.transpose(output, 1, 2).transpose(
-            output, 2, 3).contiguous()
-        target = target_th.view(-1, target_size(2), target_size(3))
+        print(output.size())
+        target = target_th.view(-1, target_th.size(2), target_th.size(3))
+        print(target.size())
 
         # calculate loss
-        l_ = loss(output, target)
-        print("loss=%f" % (l_))
-        total_loss += l_.cpu().numpy()
+        l_ = loss(output, target.long())
+        total_loss += l_.item()
         # backward loss
-        l_.cuda()
         l_.backward()
         print("back propagating ...")
         # optimizer step
         optimizer.step()
 
+    return total_loss
 
-def test():
-    #
-    #
+
+def test(epoch, testloader):
+    model.eval()
+
+    # define a loss
+    # 今回の場合背景クラスを考慮しないので重み付けはしない
+    if USE_CUDA:
+        loss = nn.CrossEntropyLoss().cuda()
+    else:
+        loss = nn.CrossEntropyLoss()
+
+    total_loss = 0
+
+    # iteration over the batches
+    for batch_id, data in enumerate(testloader):
+        print("batch_id=%d" % (batch_id))
+
+        # make batch tensor and target tensor
+        batch_th = Variable(torch.Tensor(data['input']))
+        target_th = Variable(torch.LongTensor(data['target']))
+
+        if USE_CUDA:
+            batch_th = batch_th.cuda()
+            target_th = target_th.cuda()
+
+        # predictions
+        output = model(batch_th)
+        print("forward propagating ...")
+
+        # shape output and target
+        target = target_th.view(-1, target_th.size(2), target_th.size(3))
+
+        # calculate loss
+        l_ = loss(output, target.long())
+        print("loss=%f" % (l_))
+        total_loss += l_.item()
+
+    return total_loss
 
 
 def main():
@@ -128,25 +162,30 @@ def main():
         [transforms.RandomHorizontalFlip()])
 
     # load dataset
-    trainset = datasets(input_root='./data/train/input', target_root='./data/train/target',
-                        filenames='./data/train', training=True, transform=data_transform)
+    trainset = datasets.ImageFolderDenseFileLists(
+        input_root='./data/train/input', target_root='./data/train/target',
+        filenames='./data/train/names.txt',
+        training=True, transform=data_transform)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=4, shuffle=True, num_workers=2)
-    testset = datasets(input_root='./data/test/input', target_root='./data/test/target',
-                       filenames='./data/test', training=False, transform=None)
+    testset = datasets.ImageFolderDenseFileLists(
+        input_root='./data/test/input', target_root='./data/test/target',
+        filenames='./data/test/names.txt', training=False, transform=None)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=4, shuffle=False, num_workers=2)
 
     # train and test
     for epoch in range(1, args.epochs + 1):
-        print(epoch)
+        print("epoch:%d" % (epoch))
 
         # training
         train_loss = train(epoch, trainloader)
-        print("train_loss " + str(train_loss))
+        print("train_loss:%f" % (train_loss))
 
         # validation / test
-        # test(epoch, testloader)
+        # test_loss = test(epoch, testloader)
+        # print("test_loss " + str(test_loss))
+        print()
 
 
 if __name__ == '__main__':
