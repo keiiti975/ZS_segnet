@@ -1,0 +1,153 @@
+# import without torch
+import numpy as np
+import argparse
+import os
+from random import shuffle
+
+##########
+# import torch
+import torch
+import torchvision
+import torchvision.models as models
+import torchvision.transforms as transforms
+from torch.autograd import Variable
+import torch.nn.functional as F
+import torch.nn as nn
+import torch.optim as optim
+#########
+
+# import models
+import model.segnet as segnet
+import dataset_list.ImageFolderDenseFileLists as datasets
+
+# input,label data settings
+input_nbr = 3  # 入力次元数
+label_nbr = 91  # 出力次元数(COCOstuffの次元数)
+imsize = 224
+
+# Training settings
+parser = argparse.ArgumentParser(description='PyTorch SegNet example')
+parser.add_argument('--batch-size', type=int, default=4, metavar='N',
+                    help='input batch size for training (default: 4)')
+parser.add_argument('--epochs', type=int, default=300, metavar='N',
+                    help='number of epochs to train (default: 300)')
+parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+                    help='learning rate (default: 0.01)')
+parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+                    help='SGD momentum (default: 0.5)')
+parser.add_argument('--no-cuda', action='store_true', default=False,
+                    help='enables CUDA training')
+parser.add_argument('--seed', type=int, default=1, metavar='S',
+                    help='random seed (default: 1)')
+args = parser.parse_args()
+
+# device settings
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+USE_CUDA = args.cuda
+
+# set the seed
+torch.manual_seed(args.seed)
+if args.cuda:
+    torch.cuda.manual_seed(args.seed)
+
+# Create SegNet model
+model = segnet.SegNet(input_nbr, label_nbr)
+if USE_CUDA:  # convert to cuda if needed
+    model.cuda()
+else:
+    model.float()
+model.eval()
+print(model)
+
+# define the optimizer
+optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+
+
+def train():
+    # set model to train mode
+    model.train()
+
+    # update learning rate
+    lr = args.lr * (0.1 ** (epoch // 30))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    # define a loss
+    # 今回の場合背景クラスを考慮しないので重み付けはしない
+    if USE_CUDA:
+        loss = nn.CrossEntropyLoss().cuda()
+    else:
+        loss = nn.CrossEntropyLoss()
+
+    total_loss = 0
+
+    # iteration over the batches
+    for batch_id, data in enumerate(trainloader):
+        print("batch_id=%d" % (batch_id))
+
+        # make batch tensor and target tensor
+        batch_th = Variable(torch.Tensor(data['input']))
+        target_th = Variable(torch.Tensor(data['target']))
+
+        if USE_CUDA:
+            batch_th = batch_th.cuda()
+            target_th = target_th.cuda()
+
+        # initialize gradients
+        optimizer.zero_grad()
+
+        # predictions
+        output = model(batch_th)
+        print("forward propagating ...")
+
+        # shape output and target
+        output = torch.transpose(output, 1, 2).transpose(
+            output, 2, 3).contiguous()
+        target = target_th.view(-1, target_size(2), target_size(3))
+
+        # calculate loss
+        l_ = loss(output, target)
+        print("loss=%f" % (l_))
+        total_loss += l_.cpu().numpy()
+        # backward loss
+        l_.cuda()
+        l_.backward()
+        print("back propagating ...")
+        # optimizer step
+        optimizer.step()
+
+
+def test():
+    #
+    #
+
+
+def main():
+    # compose transforms
+    data_transform = transforms.Compose(
+        [transforms.RandomHorizontalFlip()])
+
+    # load dataset
+    trainset = datasets(input_root='./data/train/input', target_root='./data/train/target',
+                        filenames='./data/train', training=True, transform=data_transform)
+    trainloader = torch.utils.data.DataLoader(
+        trainset, batch_size=4, shuffle=True, num_workers=2)
+    testset = datasets(input_root='./data/test/input', target_root='./data/test/target',
+                       filenames='./data/test', training=False, transform=None)
+    testloader = torch.utils.data.DataLoader(
+        testset, batch_size=4, shuffle=False, num_workers=2)
+
+    # train and test
+    for epoch in range(1, args.epochs + 1):
+        print(epoch)
+
+        # training
+        train_loss = train(epoch, trainloader)
+        print("train_loss " + str(train_loss))
+
+        # validation / test
+        # test(epoch, testloader)
+
+
+if __name__ == '__main__':
+    main()
