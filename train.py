@@ -27,8 +27,8 @@ imsize = 224
 
 # Training settings
 parser = argparse.ArgumentParser(description='ZS_segnet')
-parser.add_argument('--batch-size', type=int, default=4, metavar='N',
-                    help='input batch size for training (default: 4)')
+parser.add_argument('--batch-size', type=int, default=1, metavar='N',
+                    help='input batch size for training (default: 1)')
 parser.add_argument('--epochs', type=int, default=300, metavar='N',
                     help='number of epochs to train (default: 300)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -83,11 +83,11 @@ def train(epoch, trainloader):
 
     # iteration over the batches
     for batch_id, data in enumerate(trainloader):
-        print("batch_id=%d" % (batch_id))
-
         # make batch tensor and target tensor
         batch_th = Variable(torch.Tensor(data['input']))
         target_th = Variable(torch.Tensor(data['target']))
+        if batch_th.size(1) == 1:
+            continue
 
         if USE_CUDA:
             batch_th = batch_th.cuda()
@@ -98,21 +98,23 @@ def train(epoch, trainloader):
 
         # predictions
         output = model(batch_th)
-        print("forward propagating ...")
+        # print("forward propagating ...")
 
         # shape output and target
-        print(output.size())
         target = target_th.view(-1, target_th.size(2), target_th.size(3))
-        print(target.size())
 
         # calculate loss
         l_ = loss(output, target.long())
         total_loss += l_.item()
         # backward loss
         l_.backward()
-        print("back propagating ...")
+        # print("back propagating ...")
         # optimizer step
         optimizer.step()
+
+        # train conditions
+        print("batch_id=%d" % (batch_id))
+        print("filename=%s" % (trainloader.dataset.get_filename(batch_id)))
 
     return total_loss
 
@@ -131,11 +133,11 @@ def test(epoch, testloader):
 
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
-        print("batch_id=%d" % (batch_id))
-
         # make batch tensor and target tensor
         batch_th = Variable(torch.Tensor(data['input']))
         target_th = Variable(torch.LongTensor(data['target']))
+        if batch_th.size(1) == 1:
+            continue
 
         if USE_CUDA:
             batch_th = batch_th.cuda()
@@ -143,15 +145,18 @@ def test(epoch, testloader):
 
         # predictions
         output = model(batch_th)
-        print("forward propagating ...")
+        # print("forward propagating ...")
 
         # shape output and target
         target = target_th.view(-1, target_th.size(2), target_th.size(3))
 
         # calculate loss
         l_ = loss(output, target.long())
-        print("loss=%f" % (l_))
         total_loss += l_.item()
+
+        # test conditions
+        print("batch_id=%d" % (batch_id))
+        print("filename=%s" % (testloader.dataset.get_filename(batch_id)))
 
     return total_loss
 
@@ -167,12 +172,12 @@ def main():
         filenames='./data/train/names.txt',
         training=True, transform=data_transform)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=4, shuffle=True, num_workers=2)
+        trainset, batch_size=args.batch_size, shuffle=False, num_workers=2)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root='./data/test/target',
         filenames='./data/test/names.txt', training=False, transform=None)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=4, shuffle=False, num_workers=2)
+        testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
     # train and test
     for epoch in range(1, args.epochs + 1):
