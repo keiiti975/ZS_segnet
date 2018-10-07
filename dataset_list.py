@@ -60,19 +60,16 @@ class ImageFolderDenseFileLists(data.Dataset):
         target_path = self.imgs[index][1]
 
         input_img = self.loader(input_paths)
+        target_img = self.loader(target_path)
 
-        # apply transformation(without ToTensor(),Resize())
+        # apply transformation
         input_img = self.transform(input_img)
-        transform = transforms.Compose(
-            [transforms.Resize([imsize, imsize]), transforms.ToTensor()])
+        target_img = self.transform(target_img)
+        transform = transforms.Compose([transforms.ToTensor()])
         input_img = transform(input_img)
+        target_img = transform(target_img)
 
-        if self.training:
-            target_img = self.loader(target_path)
-            target_img = transform(target_img)
-        else:
-            # この部分がわからない
-            target_img = np.array([index])
+        # print(target_img)
 
         target_img = np.array(target_img)
         data = {'input': input_img, 'target': target_img}

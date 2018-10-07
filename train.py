@@ -27,18 +27,20 @@ imsize = 224
 
 # Training settings
 parser = argparse.ArgumentParser(description='ZS_segnet')
-parser.add_argument('--batch-size', type=int, default=1, metavar='N',
+parser.add_argument('--batch_size', type=int, default=1, metavar='N',
                     help='input batch size for training (default: 1)')
-parser.add_argument('--epochs', type=int, default=300, metavar='N',
-                    help='number of epochs to train (default: 300)')
+parser.add_argument('--epochs', type=int, default=1, metavar='N',
+                    help='number of epochs to train (default: 30)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                     help='SGD momentum (default: 0.5)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
+parser.add_argument('--no_cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
+parser.add_argument('--save_path', type=str, default="./model",
+                    help='save_model_path (default: "./model") ')
 args = parser.parse_args()
 
 # device settings
@@ -115,6 +117,7 @@ def train(epoch, trainloader):
         # train conditions
         print("batch_id=%d" % (batch_id))
         print("filename=%s" % (trainloader.dataset.get_filename(batch_id)))
+        print("loss=%f" % (l_.item()))
 
     return total_loss
 
@@ -191,6 +194,9 @@ def main():
         # test_loss = test(epoch, testloader)
         # print("test_loss " + str(test_loss))
         print()
+
+    # save model
+    torch.save(model.state_dict(), args.save_path)
 
 
 if __name__ == '__main__':
