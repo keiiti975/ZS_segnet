@@ -39,8 +39,8 @@ parser.add_argument('--no_cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--save_path', type=str, default="./model",
-                    help='save_model_path (default: "./model") ')
+parser.add_argument('--save_path', type=str, default="./model/segnet.pth",
+                    help='save_model_path (default: "./model/segnet.pth") ')
 args = parser.parse_args()
 
 # device settings
