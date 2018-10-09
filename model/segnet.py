@@ -153,6 +153,7 @@ class SegNet(nn.Module):
 
     def initialized_with_pretrained_weights(self):
         """Initialiaze."""
+        print("initialize from vgg16.pth")
         corresp_name = {
             "features.0.weight": "conv11.weight",
             "features.0.bias": "conv11.bias",
@@ -262,5 +263,6 @@ class SegNet(nn.Module):
 
     def load_from_filename(self, model_path):
         """Load weights method."""
+        print("load weights from segnet.pth")
         th = torch.load(model_path)  # load the weigths
         self.load_state_dict(th)

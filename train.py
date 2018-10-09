@@ -22,14 +22,14 @@ import dataset_list as datasets
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
-label_nbr = 91  # 出力次元数(COCOstuffの次元数)
+label_nbr = 172  # 出力次元数(COCOstuffの次元数)
 imsize = 224
 
 # Training settings
 parser = argparse.ArgumentParser(description='ZS_segnet')
 parser.add_argument('--batch_size', type=int, default=1, metavar='N',
                     help='input batch size for training (default: 1)')
-parser.add_argument('--epochs', type=int, default=1, metavar='N',
+parser.add_argument('--epochs', type=int, default=2, metavar='N',
                     help='number of epochs to train (default: 30)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -39,8 +39,12 @@ parser.add_argument('--no_cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
+parser.add_argument('--load_path', type=str, default="./model/segnet.pth",
+                    help='load_model_path (default: "./model/segnet.pth") ')
 parser.add_argument('--save_path', type=str, default="./model/segnet.pth",
                     help='save_model_path (default: "./model/segnet.pth") ')
+parser.add_argument('--load', action='store_true', default=False,
+                    help='enables load model')
 args = parser.parse_args()
 
 # device settings
@@ -115,9 +119,7 @@ def train(epoch, trainloader):
         optimizer.step()
 
         # train conditions
-        print("batch_id=%d" % (batch_id))
-        print("filename=%s" % (trainloader.dataset.get_filename(batch_id)))
-        print("loss=%f" % (l_.item()))
+        print("batch_id=%d, filename=%s, loss=%f" % (batch_id,trainloader.dataset.get_filename(batch_id)[0],l_.item()))
 
     return total_loss
 
@@ -158,8 +160,7 @@ def test(epoch, testloader):
         total_loss += l_.item()
 
         # test conditions
-        print("batch_id=%d" % (batch_id))
-        print("filename=%s" % (testloader.dataset.get_filename(batch_id)))
+        print("batch_id=%d, filename=%s, loss=%f" % (batch_id,testloader.dataset.get_filename(batch_id)[0],l_.item()))
 
     return total_loss
 
@@ -167,7 +168,9 @@ def test(epoch, testloader):
 def main():
     # compose transforms
     data_transform = transforms.Compose(
-        [transforms.RandomHorizontalFlip()])
+        #[transforms.RandomHorizontalFlip()]
+        []
+    )
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
@@ -181,6 +184,10 @@ def main():
         filenames='./data/test/names.txt', training=False, transform=None)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+    
+    # load model
+    if args.load==True:
+        model.load_from_filename(args.load_path)
 
     # train and test
     for epoch in range(1, args.epochs + 1):
