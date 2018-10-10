@@ -1,5 +1,5 @@
-"""Image Folder Data loader"""
-
+"""Image Folder Data loader
+   for zero shot segmentation"""
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import numpy as np
@@ -17,6 +17,7 @@ def make_dataset(input_dir, target_dir, filenames):
 
     text_file = open(filenames, 'r')
     lines = text_file.readlines()
+    text_file.close()
 
     for filename in lines:
         filename = filename.split("\n")[0]
@@ -33,15 +34,38 @@ def make_dataset(input_dir, target_dir, filenames):
     return images
 
 
+def make_vectors(filename):
+    """Create semantic_vector array"""
+    vector_array = []
+
+    text_file = open(filename, 'r')
+    lines = text_file.readlines()
+    text_file.close()
+
+    for line in lines:
+        line = line.rstrip()
+        # input all attribute
+        vector1 = line.split(" ")
+        # remove index
+        vector2 = vector1[1:]
+        vector_array.append(vector2)
+
+    return vector_array
+
+
 class ImageFolderDenseFileLists(data.Dataset):
     """Main Class for Image Folder loader."""
 
     def __init__(self, input_root='./data/train/input',
                  target_root='./data/train/target',
-                 filenames='./data/train', training=True, transform=None):
+                 filenames='', semantic_filename='./class.txt',
+                 training=True, transform=None):
         """Init function."""
         # get the lists of images
         imgs = make_dataset(input_root, target_root, filenames)
+
+        # get semantic_vector array
+        v_array = make_vectors(semantic_filename)
 
         if len(imgs) == 0:
             raise(RuntimeError("Found 0 images in subfolders of: " +
@@ -52,6 +76,7 @@ class ImageFolderDenseFileLists(data.Dataset):
         self.imgs = imgs
         self.training = training
         self.transform = transform
+        self.v_array = v_array
 
     def __getitem__(self, index):
         """Get item."""
@@ -65,6 +90,10 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
+        tar_img = np.asarray(target_img)
+        # v_array = np.asarray(self.v_array)
+        # print(v_array.shape)
+
         transform = transforms.Compose([transforms.ToTensor()])
         input_img = transform(input_img)
         target_img = transform(target_img)
@@ -89,3 +118,21 @@ class ImageFolderDenseFileLists(data.Dataset):
     def loader(self, path):
         """Load Default loader."""
         return self.image_loader(path)
+
+    def index2vec(self, img):
+        """index to semantic vector"""
+        annotation = []
+        index = 0
+        width = img.shape[1]
+        height = img.shape[0]
+        for h in range(height):
+            list = []
+            for w in range(width):
+                index = img[h, w]
+                if index > 181:
+                    index = 182
+
+                list.append(self.v_array[index])
+            annotation.append(list)
+
+        return annotation

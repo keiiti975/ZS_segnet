@@ -1,3 +1,4 @@
+"""zero shot segmentation using segnet"""
 # import without torch
 import numpy as np
 import argparse
@@ -18,7 +19,7 @@ import torch.optim as optim
 
 # import models
 import model.segnet as segnet
-import dataset_list as datasets
+import zs_dataset_list as datasets
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
@@ -179,13 +180,14 @@ def main():
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
         input_root='./data/train/input', target_root='./data/train/target',
-        filenames='./data/train/names.txt',
+        filenames='./data/train/names.txt', semantic_filename='./class.txt',
         training=True, transform=data_transform)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=args.batch_size, shuffle=False, num_workers=2)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root='./data/test/target',
-        filenames='./data/test/names.txt', training=False, transform=None)
+        filenames='./data/test/names.txt', semantic_filename='./class.txt',
+        training=False, transform=None)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
