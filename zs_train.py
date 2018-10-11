@@ -23,7 +23,7 @@ import zs_dataset_list as datasets
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
-label_nbr = 172  # 出力次元数(COCOstuffの次元数)
+label_nbr = 100  # 出力次元数(COCOstuffのセマンティックベクトルの次元数)
 imsize = 224
 
 # Training settings
@@ -82,9 +82,9 @@ def train(epoch, trainloader):
     # define a loss
     # 今回の場合背景クラスを考慮しないので重み付けはしない
     if USE_CUDA:
-        loss = nn.CrossEntropyLoss().cuda()
+        loss = nn.L1Loss(size_average=False).cuda()
     else:
-        loss = nn.CrossEntropyLoss()
+        loss = nn.L1Loss(size_average=False)
 
     total_loss = 0
 
@@ -133,9 +133,9 @@ def test(epoch, testloader):
     # define a loss
     # 今回の場合背景クラスを考慮しないので重み付けはしない
     if USE_CUDA:
-        loss = nn.CrossEntropyLoss().cuda()
+        loss = nn.L1Loss(size_average=False).cuda()
     else:
-        loss = nn.CrossEntropyLoss()
+        loss = nn.L1Loss(size_average=False)
 
     total_loss = 0
 

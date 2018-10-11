@@ -37,6 +37,7 @@ def make_dataset(input_dir, target_dir, filenames):
 def make_vectors(filename):
     """Create semantic_vector array"""
     vector_array = []
+    vector_array = np.array(vector_array)
 
     text_file = open(filename, 'r')
     lines = text_file.readlines()
@@ -48,8 +49,10 @@ def make_vectors(filename):
         vector1 = line.split(" ")
         # remove index
         vector2 = vector1[1:]
-        vector_array.append(vector2)
+        vector2 = np.array(vector2)
+        np.append(vector_array, vector2)
 
+    print(vector_array.type)
     return vector_array
 
 
@@ -90,9 +93,10 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
-        tar_img = np.asarray(target_img)
-        # v_array = np.asarray(self.v_array)
-        # print(v_array.shape)
+        target_img = np.asarray(target_img)
+        target_img.flags.writeable = True
+        target_img = self.index2vec(target_img)
+        print(target_img.shape)
 
         transform = transforms.Compose([transforms.ToTensor()])
         input_img = transform(input_img)
@@ -122,17 +126,19 @@ class ImageFolderDenseFileLists(data.Dataset):
     def index2vec(self, img):
         """index to semantic vector"""
         annotation = []
+        annotation = np.array(annotation)
         index = 0
         width = img.shape[1]
         height = img.shape[0]
         for h in range(height):
             list = []
+            list = np.array(list)
             for w in range(width):
                 index = img[h, w]
                 if index > 181:
                     index = 182
 
-                list.append(self.v_array[index])
-            annotation.append(list)
+                np.append(list, self.v_array[index])
+            np.append(annotation, list)
 
         return annotation
