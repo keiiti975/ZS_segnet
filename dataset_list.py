@@ -1,5 +1,5 @@
 """Image Folder Data loader"""
-
+import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import numpy as np
@@ -65,11 +65,15 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
+
+        # target_img to tensor
+        target_img = np.asarray(target_img)
+        target_img = torch.from_numpy(target_img)
+
+        # input_img to tensor
         transform = transforms.Compose([transforms.ToTensor()])
         input_img = transform(input_img)
-        target_img = transform(target_img)
 
-        target_img = np.array(target_img)
         data = {'input': input_img, 'target': target_img}
 
         return data

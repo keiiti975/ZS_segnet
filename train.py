@@ -22,13 +22,14 @@ import dataset_list as datasets
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
-label_nbr = 172  # 出力次元数(COCOstuffの次元数)
+label_nbr = 256  # 出力次元数(COCOstuffのラベルの次元数)
 imsize = 224
 
 # Training settings
-parser = argparse.ArgumentParser(description='ZS_segnet')
+parser = argparse.ArgumentParser(
+    description='ZS_segnet,coco can not change batch_size')
 parser.add_argument('--batch_size', type=int, default=1, metavar='N',
-                    help='input batch size for training (default: 1)')
+                    help='input batch size for training (default: 1)',)
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 30)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -45,6 +46,8 @@ parser.add_argument('--save_path', type=str, default="./model/segnet.pth",
                     help='save_model_path (default: "./model/segnet.pth") ')
 parser.add_argument('--load', action='store_true', default=False,
                     help='enables load model')
+parser.add_argument('--test', action='store_true', default=False,
+                    help='test the model')
 args = parser.parse_args()
 
 # device settings
@@ -90,27 +93,24 @@ def train(epoch, trainloader):
     # iteration over the batches
     for batch_id, data in enumerate(trainloader):
         # make batch tensor and target tensor
-        batch_th = Variable(torch.Tensor(data['input']))
-        target_th = Variable(torch.Tensor(data['target']))
-        if batch_th.size(1) == 1:
+        input = Variable(data['input'])
+        target = data['target'].long()
+        if input.size(1) == 1:
             continue
 
         if USE_CUDA:
-            batch_th = batch_th.cuda()
-            target_th = target_th.cuda()
+            input = input.cuda()
+            target = target.cuda()
 
         # initialize gradients
         optimizer.zero_grad()
 
         # predictions
-        output = model(batch_th)
+        output = model(input)
         # print("forward propagating ...")
 
-        # shape output and target
-        target = target_th.view(-1, target_th.size(2), target_th.size(3))
-
         # calculate loss
-        l_ = loss(output, target.long())
+        l_ = loss(output, target)
         total_loss += l_.item()
         # backward loss
         l_.backward()
@@ -126,7 +126,7 @@ def train(epoch, trainloader):
     return total_loss
 
 
-def test(epoch, testloader):
+def test(testloader):
     model.eval()
 
     # define a loss
@@ -141,24 +141,21 @@ def test(epoch, testloader):
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
-        batch_th = Variable(torch.Tensor(data['input']))
-        target_th = Variable(torch.LongTensor(data['target']))
-        if batch_th.size(1) == 1:
+        input = Variable(data['input'])
+        target = data['target'].long()
+        if input.size(1) == 1:
             continue
 
         if USE_CUDA:
-            batch_th = batch_th.cuda()
-            target_th = target_th.cuda()
+            input = input.cuda()
+            target = target.cuda()
 
         # predictions
-        output = model(batch_th)
+        output = model(input)
         # print("forward propagating ...")
 
-        # shape output and target
-        target = target_th.view(-1, target_th.size(2), target_th.size(3))
-
         # calculate loss
-        l_ = loss(output, target.long())
+        l_ = loss(output, target)
         total_loss += l_.item()
 
         # test conditions
@@ -197,13 +194,19 @@ def main():
     for epoch in range(1, args.epochs + 1):
         print("epoch:%d" % (epoch))
 
-        # training
-        train_loss = train(epoch, trainloader)
-        print("train_loss:%f" % (train_loss))
+        if args.test is False:
+            # training
+            train_loss = train(epoch, trainloader)
+            print("train_loss:%f" % (train_loss))
+        elif args.test is True and args.load is True:
+            # test
+            test_loss = test(testloader)
+            print("test_loss " + str(test_loss))
+            break
+        else:
+            print('can not test the model!')
+            break
 
-        # validation / test
-        # test_loss = test(epoch, testloader)
-        # print("test_loss " + str(test_loss))
         print()
 
     # save model
