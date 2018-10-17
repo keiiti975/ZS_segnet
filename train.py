@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 import os
 from random import shuffle
+import visdom
 
 ##########
 # import torch
@@ -19,6 +20,7 @@ import torch.optim as optim
 # import models
 import model.segnet as segnet
 import dataset_list as datasets
+import make_log as flog
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
@@ -30,7 +32,7 @@ parser = argparse.ArgumentParser(
     description='ZS_segnet,coco can not change batch_size')
 parser.add_argument('--batch_size', type=int, default=1, metavar='N',
                     help='input batch size for training (default: 1)',)
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=30, metavar='N',
                     help='number of epochs to train (default: 30)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -40,10 +42,10 @@ parser.add_argument('--no_cuda', action='store_true', default=False,
                     help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--load_path', type=str, default="./model/segnet.pth",
-                    help='load_model_path (default: "./model/segnet.pth") ')
-parser.add_argument('--save_path', type=str, default="./model/segnet.pth",
-                    help='save_model_path (default: "./model/segnet.pth") ')
+parser.add_argument('--load_pth', type=str, default="segnet.pth",
+                    help='load pth from ./model  (default: "segnet.pth") ')
+parser.add_argument('--save_pth', type=str, default="segnet.pth",
+                    help='save pth to ./model (default: "segnet.pth") ')
 parser.add_argument('--load', action='store_true', default=False,
                     help='enables load model')
 parser.add_argument('--test', action='store_true', default=False,
@@ -68,6 +70,22 @@ else:
 model.eval()
 print(model)
 
+# Create visdom
+vis = visdom.Visdom()
+
+# init log_data
+X = np.array([[0, 0]])
+win = vis.scatter(
+    X=X,
+    opts=dict(
+        xlabel='epoch',
+        ylabel='loss'
+    )
+)
+
+# Create log model
+f_log = flog.make_log()
+
 # define the optimizer
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
@@ -89,6 +107,12 @@ def train(epoch, trainloader):
         loss = nn.CrossEntropyLoss()
 
     total_loss = 0
+
+    # define epoch_size
+    epoch_size = trainloader.dataset.__len__()
+
+    # define batch_loss
+    batch_loss = 0
 
     # iteration over the batches
     for batch_id, data in enumerate(trainloader):
@@ -114,14 +138,29 @@ def train(epoch, trainloader):
         total_loss += l_.item()
         # backward loss
         l_.backward()
-        # print("back propagating ...")
+        # print("back propagating ...")np.append(X, np.array([batch_id, l_.item()]))
         # optimizer step
         optimizer.step()
 
         # train conditions
-        print("batch_id=%d, filename=%s, loss=%f" % (
-            batch_id, trainloader.dataset.get_filename(batch_id)[0],
-            l_.item()))
+        print("epoch=%d, id=%d, filename=%s, loss=%f"
+              % (epoch, batch_id,
+                 trainloader.dataset.get_filename(batch_id)[0], l_.item()))
+
+        if batch_id % 10 == 0:
+            batch_loss = batch_loss + l_.item()
+            batch_loss = batch_loss / 10
+            # display visdom board
+            phase = epoch + batch_id / epoch_size
+            X2 = np.array([[phase, batch_loss]])
+            vis.scatter(
+                X=X2,
+                update='append',
+                win=win
+            )
+            batch_loss = 0
+        else:
+            batch_loss = batch_loss + l_.item()
 
     return total_loss
 
@@ -159,9 +198,9 @@ def test(testloader):
         total_loss += l_.item()
 
         # test conditions
-        print("batch_id=%d, filename=%s, loss=%f" %
-              (batch_id, testloader.dataset.get_filename(batch_id)[0],
-               l_.item()))
+        print("id=%d, filename=%s, loss=%f"
+              % (batch_id,
+                 testloader.dataset.get_filename(batch_id)[0], l_.item()))
 
     return total_loss
 
@@ -186,18 +225,24 @@ def main():
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
+    model.initialized_with_pretrained_weights()
+
+    # make log_file
+    f_log.open()
+
     # load model
     if args.load is True:
-        model.load_from_filename(args.load_path)
+        model.load_from_filename("./model/" + args.load_pth)
 
     # train and test
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(0, args.epochs - 1):
         print("epoch:%d" % (epoch))
 
         if args.test is False:
             # training
             train_loss = train(epoch, trainloader)
             print("train_loss:%f" % (train_loss))
+            f_log.write(epoch, train_loss)
         elif args.test is True and args.load is True:
             # test
             test_loss = test(testloader)
@@ -209,8 +254,11 @@ def main():
 
         print()
 
+    # close log_file
+    f_log.close()
+
     # save model
-    torch.save(model.state_dict(), args.save_path)
+    torch.save(model.state_dict(), "./model/" + args.save_pth)
 
 
 if __name__ == '__main__':

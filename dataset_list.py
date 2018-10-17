@@ -17,6 +17,7 @@ def make_dataset(input_dir, target_dir, filenames):
 
     text_file = open(filenames, 'r')
     lines = text_file.readlines()
+    text_file.close()
 
     for filename in lines:
         filename = filename.split("\n")[0]
