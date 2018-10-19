@@ -23,7 +23,6 @@ import dataset_list as datasets
 
 # imports utility
 import make_log as flog
-import batch_dataloader as loader
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
