@@ -6,7 +6,7 @@ from random import shuffle
 import visdom
 
 ##########
-# import torch
+# imports torch
 import torch
 import torchvision
 import torchvision.models as models
@@ -17,10 +17,13 @@ import torch.nn as nn
 import torch.optim as optim
 ##########
 
-# import models
+# imports models
 import model.segnet as segnet
 import dataset_list as datasets
+
+# imports utility
 import make_log as flog
+import batch_dataloader as loader
 
 # input,label data settings
 input_nbr = 3  # 入力次元数
@@ -73,15 +76,34 @@ print(model)
 # Create visdom
 vis = visdom.Visdom()
 
-# init log_data
+# init window
 X = np.array([[0, 0]])
-win = vis.scatter(
-    X=X,
-    opts=dict(
-        xlabel='epoch',
-        ylabel='loss'
+if args.test is False:
+    win = vis.scatter(
+        X=X,
+        opts=dict(
+            title='train_loss',
+            xlabel='epoch',
+            ylabel='loss'
+        )
     )
-)
+    win_acc = vis.scatter(
+        X=X,
+        opts=dict(
+            title='train_accuracy',
+            xlabel='epoch',
+            ylabel='accuracy'
+        )
+    )
+else:
+    win = vis.scatter(
+        X=X,
+        opts=dict(
+            title='test_loss',
+            xlabel='epoch',
+            ylabel='loss'
+        )
+    )
 
 # Create log model
 f_log = flog.make_log()
@@ -109,7 +131,7 @@ def train(epoch, trainloader):
     total_loss = 0
 
     # define epoch_size
-    epoch_size = trainloader.dataset.__len__()
+    epoch_size = len(trainloader)
 
     # define batch_loss
     batch_loss = 0
@@ -119,8 +141,6 @@ def train(epoch, trainloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
         target = data['target'].long()
-        if input.size(1) == 1:
-            continue
 
         if USE_CUDA:
             input = input.cuda()
@@ -133,34 +153,30 @@ def train(epoch, trainloader):
         output = model(input)
         # print("forward propagating ...")
 
-        # calculate loss
+        # calculate lossprint(target_img2.shape)
         l_ = loss(output, target)
         total_loss += l_.item()
         # backward loss
         l_.backward()
-        # print("back propagating ...")np.append(X, np.array([batch_id, l_.item()]))
+        # print("back propagating ...")
         # optimizer step
         optimizer.step()
 
         # train conditions
-        print("epoch=%d, id=%d, filename=%s, loss=%f"
-              % (epoch, batch_id,
-                 trainloader.dataset.get_filename(batch_id)[0], l_.item()))
+        print("epoch=%d, id=%d, loss=%f"
+              % (epoch, batch_id, l_.item()))
 
-        if batch_id % 10 == 0:
+        if batch_id % 10 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
             batch_loss = batch_loss / 10
             # display visdom board
-            phase = epoch + batch_id / epoch_size
-            X2 = np.array([[phase, batch_loss]])
-            vis.scatter(
-                X=X2,
-                update='append',
-                win=win
-            )
+            phase = batch_id / epoch_size
+            visualize(phase, batch_loss, win)
             batch_loss = 0
         else:
             batch_loss = batch_loss + l_.item()
+        if batch_id % 100 == 0 and batch_id != 0:
+            evaluate(output, target, epoch, epoch_size, batch_id)
 
     return total_loss
 
@@ -177,13 +193,17 @@ def test(testloader):
 
     total_loss = 0
 
+    # define epoch_size
+    epoch_size = len(testloader)
+
+    # define batch_loss
+    batch_loss = 0
+
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
         target = data['target'].long()
-        if input.size(1) == 1:
-            continue
 
         if USE_CUDA:
             input = input.cuda()
@@ -198,32 +218,74 @@ def test(testloader):
         total_loss += l_.item()
 
         # test conditions
-        print("id=%d, filename=%s, loss=%f"
-              % (batch_id,
-                 testloader.dataset.get_filename(batch_id)[0], l_.item()))
+        print("id=%d, loss=%f"
+              % (batch_id, l_.item()))
+
+        if batch_id % 10 == 0 and batch_id != 0:
+            batch_loss = batch_loss + l_.item()
+            batch_loss = batch_loss / 10
+            # display visdom board
+            phase = batch_id / epoch_size
+            visualize(phase, batch_loss, win)
+            batch_loss = 0
+        else:
+            batch_loss = batch_loss + l_.item()
+        if batch_id % 100 == 0 and batch_id != 0:
+            evaluate(output, target, 0, epoch_size, batch_id)
 
     return total_loss
 
 
+def evaluate(output, target, epoch, epoch_size, batch_id):
+    for id in range(args.batch_size):
+        result = output[id, :, :, :]
+        result = result.max(0)[1].cpu().numpy()
+        r_target = target[id, :, :]
+        r_target = r_target.cpu().numpy()
+        data_num = 0
+        correct_num = 0
+        for i in range(output.size(2)):
+            for j in range(output.size(3)):
+                data_num = data_num + 1
+                if result[i, j] == r_target[i, j]:
+                    correct_num = correct_num + 1
+        phase = epoch + batch_id / epoch_size
+        visualize(phase, (correct_num / data_num), win_acc)
+
+
+def visualize(phase, visualized_data, window):
+    X2 = np.array([[phase, visualized_data]])
+    vis.scatter(
+        X=X2,
+        update='append',
+        win=window
+    )
+
+
 def main():
     # compose transforms
-    data_transform = transforms.Compose(
+    train_transform = transforms.Compose(
+        # [transforms.RandomHorizontalFlip()]
+        []
+    )
+    test_transform = transforms.Compose(
         # [transforms.RandomHorizontalFlip()]
         []
     )
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/train/input', target_root='./data/train/target',
-        filenames='./data/train/names.txt',
-        training=True, transform=data_transform)
+        input_root='./data/test/input', target_root='./data/test/target',
+        filenames='./data/test/names.txt',
+        training=True, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+        trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root='./data/test/target',
-        filenames='./data/test/names.txt', training=False, transform=None)
+        filenames='./data/test/names.txt',
+        training=False, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+        testset, batch_size=args.batch_size, shuffle=False, num_workers=8)
 
     model.initialized_with_pretrained_weights()
 
@@ -246,7 +308,7 @@ def main():
         elif args.test is True and args.load is True:
             # test
             test_loss = test(testloader)
-            print("test_loss " + str(test_loss))
+            print("test_loss:%f " % (test_loss))
             break
         else:
             print('can not test the model!')

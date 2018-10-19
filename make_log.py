@@ -1,5 +1,3 @@
-
-
 class make_log():
     def __init__(self, log_name='log'):
         self.name = log_name

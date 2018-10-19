@@ -6,8 +6,9 @@ import numpy as np
 from PIL import Image
 import os
 import os.path
+from tqdm import tqdm
 
-imsize = 224
+max_size = 640  # max size of COCO
 
 
 def make_dataset(input_dir, target_dir, filenames):
@@ -18,9 +19,13 @@ def make_dataset(input_dir, target_dir, filenames):
     text_file = open(filenames, 'r')
     lines = text_file.readlines()
     text_file.close()
+    print("removing grayscales ...")
 
-    for filename in lines:
+    for filename in tqdm(lines):
         filename = filename.split("\n")[0]
+        with Image.open(os.path.join(input_dir, filename)) as image:
+            if image.mode == "L":
+                continue
         item = []
         item.append(os.path.join(input_dir, filename))
 
@@ -39,7 +44,8 @@ class ImageFolderDenseFileLists(data.Dataset):
 
     def __init__(self, input_root='./data/train/input',
                  target_root='./data/train/target',
-                 filenames='./data/train', training=True, transform=None):
+                 filenames='./data/train',
+                 training=True, transform=None):
         """Init function."""
         # get the lists of images
         imgs = make_dataset(input_root, target_root, filenames)
@@ -66,6 +72,25 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
+        input_img2 = np.asarray(input_img)
+        height = input_img2.shape[0]
+        width = input_img2.shape[1]
+        transform_input = transforms.Compose(
+            [transforms.Pad(
+                padding=((max_size - width) // 2,
+                         (max_size - height) // 2,
+                         (max_size - width) // 2 + (max_size - width) % 2,
+                         (max_size - height) // 2 + (max_size - height) % 2,
+                         ), fill=0)])
+        transform_target = transforms.Compose(
+            [transforms.Pad(
+                padding=((max_size - width) // 2,
+                         (max_size - height) // 2,
+                         (max_size - width) // 2 + (max_size - width) % 2,
+                         (max_size - height) // 2 + (max_size - height) % 2,
+                         ), fill=255)])
+        input_img = transform_input(input_img)
+        target_img = transform_target(target_img)
 
         # target_img to tensor
         target_img = np.asarray(target_img)
