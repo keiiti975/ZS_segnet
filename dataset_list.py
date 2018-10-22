@@ -72,25 +72,28 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
-        input_img2 = np.asarray(input_img)
-        height = input_img2.shape[0]
-        width = input_img2.shape[1]
-        transform_input = transforms.Compose(
-            [transforms.Pad(
-                padding=((max_size - width) // 2,
-                         (max_size - height) // 2,
-                         (max_size - width) // 2 + (max_size - width) % 2,
-                         (max_size - height) // 2 + (max_size - height) % 2,
-                         ), fill=0)])
-        transform_target = transforms.Compose(
-            [transforms.Pad(
-                padding=((max_size - width) // 2,
-                         (max_size - height) // 2,
-                         (max_size - width) // 2 + (max_size - width) % 2,
-                         (max_size - height) // 2 + (max_size - height) % 2,
-                         ), fill=255)])
-        input_img = transform_input(input_img)
-        target_img = transform_target(target_img)
+        if self.training is True:
+            input_img2 = np.asarray(input_img)
+            height = input_img2.shape[0]
+            width = input_img2.shape[1]
+            transform_input = transforms.Compose(
+                [transforms.Pad(
+                    padding=((max_size - width) // 2,
+                             (max_size - height) // 2,
+                             (max_size - width) // 2 + (max_size - width) % 2,
+                             (max_size - height) // 2 +
+                             (max_size - height) % 2,
+                             ), fill=0)])
+            transform_target = transforms.Compose(
+                [transforms.Pad(
+                    padding=((max_size - width) // 2,
+                             (max_size - height) // 2,
+                             (max_size - width) // 2 + (max_size - width) % 2,
+                             (max_size - height) // 2 +
+                             (max_size - height) % 2,
+                             ), fill=255)])
+            input_img = transform_input(input_img)
+            target_img = transform_target(target_img)
 
         # target_img to tensor
         target_img = np.asarray(target_img)

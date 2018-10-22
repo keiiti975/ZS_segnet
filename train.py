@@ -4,6 +4,7 @@ import argparse
 import os
 from random import shuffle
 import visdom
+from PIL import Image
 
 ##########
 # imports torch
@@ -48,6 +49,8 @@ parser.add_argument('--load_pth', type=str, default="segnet.pth",
                     help='load pth from ./model  (default: "segnet.pth") ')
 parser.add_argument('--save_pth', type=str, default="segnet.pth",
                     help='save pth to ./model (default: "segnet.pth") ')
+parser.add_argument('--output_dir', type=str, default="./data/output/",
+                    help='dir of output_image  (default: "./data/output/") ')
 parser.add_argument('--load', action='store_true', default=False,
                     help='enables load model')
 parser.add_argument('--test', action='store_true', default=False,
@@ -101,6 +104,14 @@ else:
             title='test_loss',
             xlabel='epoch',
             ylabel='loss'
+        )
+    )
+    win_acc = vis.scatter(
+        X=X,
+        opts=dict(
+            title='test_accuracy',
+            xlabel='epoch',
+            ylabel='accuracy'
         )
     )
 
@@ -165,11 +176,12 @@ def train(epoch, trainloader):
         print("epoch=%d, id=%d, loss=%f"
               % (epoch, batch_id, l_.item()))
 
+        # visualize train condition
         if batch_id % 10 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
             batch_loss = batch_loss / 10
             # display visdom board
-            phase = batch_id / epoch_size
+            phase = epoch + batch_id / epoch_size
             visualize(phase, batch_loss, win)
             batch_loss = 0
         else:
@@ -219,6 +231,14 @@ def test(testloader):
         # test conditions
         print("id=%d, loss=%f"
               % (batch_id, l_.item()))
+
+        # output segmentation img
+        print(testloader.dataset.get_filename(batch_id)[0])
+        filename = os.path.basename(
+            testloader.dataset.get_filename(batch_id)[0])
+        result = output[0, :, :, :]
+        result = result.max(0)[1].cpu().numpy()
+        Image.fromarray(np.uint8(result)).save(args.output_dir + filename)
 
         if batch_id % 10 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
@@ -284,7 +304,7 @@ def main():
         filenames='./data/test/names.txt',
         training=False, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=args.batch_size, shuffle=False, num_workers=8)
+        testset, batch_size=1, shuffle=False, num_workers=8)
 
     model.initialized_with_pretrained_weights()
 
@@ -296,7 +316,7 @@ def main():
         model.load_from_filename("./model/" + args.load_pth)
 
     # train and test
-    for epoch in range(0, args.epochs - 1):
+    for epoch in range(0, args.epochs):
         print("epoch:%d" % (epoch))
 
         if args.test is False:
@@ -304,6 +324,9 @@ def main():
             train_loss = train(epoch, trainloader)
             print("train_loss:%f" % (train_loss))
             f_log.write(epoch, train_loss)
+            # save checkpoint
+            torch.save(model.state_dict(),
+                       "./model/checkpoint_" + str(epoch) + ".pth")
         elif args.test is True and args.load is True:
             # test
             test_loss = test(testloader)
