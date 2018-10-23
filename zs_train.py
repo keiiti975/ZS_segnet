@@ -5,9 +5,10 @@ import argparse
 import os
 from random import shuffle
 import visdom
+from PIL import Image
 
 ##########
-# import torch
+# imports torch
 import torch
 import torchvision
 import torchvision.models as models
@@ -18,9 +19,11 @@ import torch.nn as nn
 import torch.optim as optim
 ##########
 
-# import models
+# imports models
 import model.segnet as segnet
 import zs_dataset_list as datasets
+
+# imports utility
 import make_log as flog
 
 # input,label data settings
@@ -47,6 +50,8 @@ parser.add_argument('--load_pth', type=str, default="segnet.pth",
                     help='load pth from ./model (default: "segnet.pth") ')
 parser.add_argument('--save_pth', type=str, default="segnet.pth",
                     help='save pth to ./model (default: "segnet.pth") ')
+parser.add_argument('--output_dir', type=str, default="./data/output/",
+                    help='dir of output_image  (default: "./data/output/") ')
 parser.add_argument('--load', action='store_true', default=False,
                     help='enables load model')
 parser.add_argument('--test', action='store_true', default=False,
@@ -74,18 +79,45 @@ print(model)
 # Create visdom
 vis = visdom.Visdom()
 
-# init log_data
+# init window
 X = np.array([[0, 0]])
-win = vis.scatter(
-    X=X,
-    opts=dict(
-        xlabel='epoch',
-        ylabel='loss'
+if args.test is False:
+    win = vis.scatter(
+        X=X,
+        opts=dict(
+            title='train_loss',
+            xlabel='epoch',
+            ylabel='loss'
+        )
     )
-)
+    win_acc = vis.scatter(
+        X=X,
+        opts=dict(
+            title='train_accuracy',
+            xlabel='epoch',
+            ylabel='accuracy'
+        )
+    )
+else:
+    win = vis.scatter(
+        X=X,
+        opts=dict(
+            title='test_loss',
+            xlabel='epoch',
+            ylabel='loss'
+        )
+    )
+    win_acc = vis.scatter(
+        X=X,
+        opts=dict(
+            title='test_accuracy',
+            xlabel='epoch',
+            ylabel='accuracy'
+        )
+    )
 
-# Create log_file
-f_log = flog.make_log()
+# Create log model
+f_log = flog.make_log(args.batch_size)
 
 # define the optimizer
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
@@ -103,14 +135,14 @@ def train(epoch, trainloader):
     # define a loss
     # 今回の場合背景クラスを考慮しないので重み付けはしない
     if USE_CUDA:
-        loss = nn.L1Loss(size_average=False).cuda()
+        loss = nn.L1Loss(size_average=True).cuda()
     else:
-        loss = nn.L1Loss(size_average=False)
+        loss = nn.L1Loss(size_average=True)
 
     total_loss = 0
 
     # define epoch_size
-    epoch_size = trainloader.dataset.__len__()
+    epoch_size = len(trainloader)
 
     # define batch_loss
     batch_loss = 0
@@ -120,8 +152,6 @@ def train(epoch, trainloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
         target = data['target']
-        if input.size(1) == 1:
-            continue
 
         if USE_CUDA:
             input = input.cuda()
@@ -134,15 +164,18 @@ def train(epoch, trainloader):
         output = model(input)
         # print("forward propagating ...")
 
-        # shape output and target
-        output = output.view(-1, output.size(2), output.size(3))
-        target = target.view(-1, target.size(2), target.size(3))
-
         # calculate loss
-        l_ = loss(output, target)
+        l_ = 0
+        output2 = output.view(output.size(0), output.size(1), -1)
+        target2 = target.view(target.size(0), output.size(1), -1)
+        output2.transpose(1, 2)
+        target2.transpose(1, 2)
+        for i in range(args.batch_size):
+            output_sample = output2[i, :, :]
+            target_sample = target2[i, :, :]
+            l_ = l_ + loss(output_sample, target_sample)
+
         total_loss += l_.item()
-        height = target.size(1)
-        width = target.size(2)
         # backward loss
         l_.backward()
         # print("back propagating ...")
@@ -150,25 +183,22 @@ def train(epoch, trainloader):
         optimizer.step()
 
         # train conditions
-        print("epoch=%d, id=%d, filename=%s, loss=%f"
-              % (epoch, batch_id,
-                 trainloader.dataset.get_filename(batch_id)[0],
-                 l_.item() / (height * width)))
+        print("epoch=%d, id=%d, loss=%f" % (epoch, batch_id, l_.item()))
 
-        if batch_id % 10 == 0:
+        # visualize train condition
+        if batch_id % 10 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
             batch_loss = batch_loss / 10
             # display visdom board
             phase = epoch + batch_id / epoch_size
-            X2 = np.array([[phase, batch_loss]])
-            vis.scatter(
-                X=X2,
-                update='append',
-                win=win
-            )
+            visualize(phase, batch_loss, win)
             batch_loss = 0
         else:
             batch_loss = batch_loss + l_.item()
+        if batch_id % 100 == 0 and batch_id != 0:
+            target_map = data["map"]
+            v_array = trainloader.dataset.v_array
+            evaluate(output, target_map, v_array, epoch, epoch_size, batch_id)
 
     return total_loss
 
@@ -179,19 +209,23 @@ def test(testloader):
     # define a loss
     # 今回の場合背景クラスを考慮しないので重み付けはしない
     if USE_CUDA:
-        loss = nn.L1Loss(size_average=False).cuda()
+        loss = nn.L1Loss(size_average=True).cuda()
     else:
-        loss = nn.L1Loss(size_average=False)
+        loss = nn.L1Loss(size_average=True)
 
     total_loss = 0
+
+    # define epoch_size
+    epoch_size = len(testloader)
+
+    # define batch_loss
+    batch_loss = 0
 
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
         target = data['target'].long()
-        if input.size(1) == 1:
-            continue
 
         if USE_CUDA:
             input = input.cuda()
@@ -201,45 +235,121 @@ def test(testloader):
         output = model(input)
         # print("forward propagating ...")
 
-        # shape output and target
-        output = output.view(-1, output.size(2), output.size(3))
-        target = target.view(-1, target.size(2), target.size(3))
-
         # calculate loss
-        l_ = loss(output, target)
-        total_loss += l_.item()
-        height = target.size(1)
-        width = target.size(2)
+        l_ = 0
+        output2 = output.view(output.size(0), output.size(1), -1)
+        target2 = target.view(target.size(0), output.size(1), -1)
+        output2.transpose(1, 2)
+        target2.transpose(1, 2)
+        for i in range(args.batch_size):
+            output_sample = output2[i, :, :]
+            target_sample = target2[i, :, :]
+            l_ = l_ + loss(output_sample, target_sample)
+
+        total_loss = total_loss + l_
 
         # test conditions
-        print("id=%d, filename=%s, loss=%f"
-              % (batch_id,
-                 testloader.dataset.get_filename(batch_id)[0],
-                 l_.item() / (height * width)))
+        print("id=%d, loss=%f" % (batch_id, l_.item()))
+
+        # output segmentation img
+        print(testloader.dataset.get_filename(batch_id)[0])
+        filename = os.path.basename(
+            testloader.dataset.get_filename(batch_id)[0])
+        result = output[0, :, :, :]
+        result = result.max(0)[1].cpu().numpy()
+        Image.fromarray(np.uint8(result)).save(args.output_dir + filename)
+
+        # visualize test condition
+        if batch_id % 10 == 0 and batch_id != 0:
+            batch_loss = batch_loss + l_.item() / (height * width)
+            batch_loss = batch_loss / 10
+            # display visdom board
+            phase = batch_id / epoch_size
+            visualize(phase, batch_loss, win)
+            batch_loss = 0
+        else:
+            batch_loss = batch_loss + l_.item()
+        if batch_id % 100 == 0 and batch_id != 0:
+            target_map = data["map"]
+            v_array = testloader.dataset.v_array
+            evaluate(output, target_map, v_array, 0, epoch_size, batch_id)
 
     return total_loss
 
 
+def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
+    v_array = torch.from_numpy(v_array)
+    if USE_CUDA:
+        loss = nn.L1Loss(size_average=False).cuda()
+        v_array = v_array.cuda()
+    else:
+        loss = nn.L1Loss(size_average=False)
+
+    for id in range(args.batch_size):
+        single_output = output[id, :, :, :]
+        target = target_map[id, :, :]
+        target = target.cpu().numpy()
+        result = np.zeros(target.shape)
+
+        for i in range(single_output.size(1)):
+            for j in range(single_output.size(2)):
+                min_index = 0
+                min_loss = 1000000
+                for k in range(v_array.size(0)):
+                    result_loss = loss(single_output[:, i, j], v_array[k, :])
+                    if min_loss > result_loss:
+                        min_loss = result_loss
+                        if k != 182:
+                            min_index = k
+                        else:
+                            min_index = 255
+                result[i, j] = min_index
+                print("result[%d,%d]=%d" % (i, j, min_index))
+
+        data_num = 0
+        correct_num = 0
+        for i in range(output.size(2)):
+            for j in range(output.size(3)):
+                data_num = data_num + 1
+                if result[i, j] == target[i, j]:
+                    correct_num = correct_num + 1
+        phase = epoch + batch_id / epoch_size
+        visualize(phase, (correct_num / data_num), win_acc)
+
+
+def visualize(phase, visualized_data, window):
+    X2 = np.array([[phase, visualized_data]])
+    vis.scatter(
+        X=X2,
+        update='append',
+        win=window
+    )
+
+
 def main():
     # compose transforms
-    data_transform = transforms.Compose(
+    train_transform = transforms.Compose(
+        # [transforms.RandomHorizontalFlip()]
+        []
+    )
+    test_transform = transforms.Compose(
         # [transforms.RandomHorizontalFlip()]
         []
     )
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/train/input', target_root='./data/train/target',
-        filenames='./data/train/names.txt', semantic_filename='./class.txt',
-        training=True, transform=data_transform)
+        input_root='./data/test/input', target_root='./data/test/target',
+        filenames='./data/test/names.txt', semantic_filename='./class.txt',
+        training=True, batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+        trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root='./data/test/target',
         filenames='./data/test/names.txt', semantic_filename='./class.txt',
-        training=False, transform=None)
+        training=False, batch_size=args.batch_size, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+        testset, batch_size=1, shuffle=False, num_workers=8)
 
     model.initialized_with_pretrained_weights()
 
@@ -258,7 +368,15 @@ def main():
             # training
             train_loss = train(epoch, trainloader)
             print("train_loss:%f" % (train_loss))
+            # open log_file
+            f_log.open()
+            # write log_file
             f_log.write(epoch, train_loss)
+            # close log_file
+            f_log.close()
+            # save checkpoint
+            torch.save(model.state_dict(),
+                       "./model/checkpoint_" + str(epoch) + ".pth")
         elif args.test is True and args.load is True:
             # test
             test_loss = test(testloader)
@@ -269,9 +387,6 @@ def main():
             break
 
         print()
-
-    # close log_file
-    f_log.close()
 
     # save model
     torch.save(model.state_dict(), "./model/" + args.save_pth)

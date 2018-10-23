@@ -116,7 +116,7 @@ else:
     )
 
 # Create log model
-f_log = flog.make_log()
+f_log = flog.make_log(args.batch_size)
 
 # define the optimizer
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
@@ -163,7 +163,7 @@ def train(epoch, trainloader):
         output = model(input)
         # print("forward propagating ...")
 
-        # calculate lossprint(target_img2.shape)
+        # calculate loss
         l_ = loss(output, target)
         total_loss += l_.item()
         # backward loss
@@ -240,6 +240,7 @@ def test(testloader):
         result = result.max(0)[1].cpu().numpy()
         Image.fromarray(np.uint8(result)).save(args.output_dir + filename)
 
+        # visualize test condition
         if batch_id % 10 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
             batch_loss = batch_loss / 10
@@ -296,20 +297,17 @@ def main():
     trainset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root='./data/test/target',
         filenames='./data/test/names.txt',
-        training=True, transform=train_transform)
+        training=True, batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root='./data/test/target',
         filenames='./data/test/names.txt',
-        training=False, transform=test_transform)
+        training=False, batch_size=args.batch_size, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=1, shuffle=False, num_workers=8)
 
     model.initialized_with_pretrained_weights()
-
-    # make log_file
-    f_log.open()
 
     # load model
     if args.load is True:
@@ -323,7 +321,12 @@ def main():
             # training
             train_loss = train(epoch, trainloader)
             print("train_loss:%f" % (train_loss))
+            # open log_file
+            f_log.open()
+            # write log_file
             f_log.write(epoch, train_loss)
+            # close log_file
+            f_log.close()
             # save checkpoint
             torch.save(model.state_dict(),
                        "./model/checkpoint_" + str(epoch) + ".pth")
@@ -337,9 +340,6 @@ def main():
             break
 
         print()
-
-    # close log_file
-    f_log.close()
 
     # save model
     torch.save(model.state_dict(), "./model/" + args.save_pth)

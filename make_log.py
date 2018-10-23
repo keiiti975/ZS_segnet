@@ -1,10 +1,18 @@
+from datetime import datetime
+
+
 class make_log():
-    def __init__(self, log_name='log'):
+    def __init__(self, batch_size, log_name='log'):
         self.name = log_name
+        self.open()
+        self.f.write("--- start_time: " +
+                     datetime.now().strftime("%Y/%m/%d %H:%M:%S") +
+                     " batch_size: " + str(batch_size) + " ---")
+        self.close()
 
     def open(self):
         path = "./log/" + self.name + ".txt"
-        self.f = open(path, mode="w")
+        self.f = open(path, mode="a")
 
     def write(self, epoch, loss):
         line = "epoch: " + str(epoch) + ",loss: " + str(loss) + "\n"

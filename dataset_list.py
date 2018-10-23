@@ -45,7 +45,7 @@ class ImageFolderDenseFileLists(data.Dataset):
     def __init__(self, input_root='./data/train/input',
                  target_root='./data/train/target',
                  filenames='./data/train',
-                 training=True, transform=None):
+                 training=True, batch_size=1, transform=None):
         """Init function."""
         # get the lists of images
         imgs = make_dataset(input_root, target_root, filenames)
@@ -59,6 +59,10 @@ class ImageFolderDenseFileLists(data.Dataset):
         self.imgs = imgs
         self.training = training
         self.transform = transform
+        if batch_size == 1:
+            self.padding = False
+        else:
+            self.padding = True
 
     def __getitem__(self, index):
         """Get item."""
@@ -72,7 +76,7 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
-        if self.training is True:
+        if self.training is True self.padding is True:
             input_img2 = np.asarray(input_img)
             height = input_img2.shape[0]
             width = input_img2.shape[1]
