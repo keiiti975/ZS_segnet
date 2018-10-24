@@ -7,7 +7,7 @@ class make_log():
         self.open()
         self.f.write("--- start_time: " +
                      datetime.now().strftime("%Y/%m/%d %H:%M:%S") +
-                     " batch_size: " + str(batch_size) + " ---")
+                     " batch_size: " + str(batch_size) + " ---\n")
         self.close()
 
     def open(self):

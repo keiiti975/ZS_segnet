@@ -6,6 +6,8 @@ import os
 from random import shuffle
 import visdom
 from PIL import Image
+from sklearn.neighbors import NearestNeighbors
+from tqdm import tqdm
 
 ##########
 # imports torch
@@ -195,7 +197,7 @@ def train(epoch, trainloader):
             batch_loss = 0
         else:
             batch_loss = batch_loss + l_.item()
-        if batch_id % 100 == 0 and batch_id != 0:
+        if batch_id % 1000 == 0 and batch_id != 0:
             target_map = data["map"]
             v_array = trainloader.dataset.v_array
             evaluate(output, target_map, v_array, epoch, epoch_size, batch_id)
@@ -269,7 +271,7 @@ def test(testloader):
             batch_loss = 0
         else:
             batch_loss = batch_loss + l_.item()
-        if batch_id % 100 == 0 and batch_id != 0:
+        if batch_id % 1000 == 0 and batch_id != 0:
             target_map = data["map"]
             v_array = testloader.dataset.v_array
             evaluate(output, target_map, v_array, 0, epoch_size, batch_id)
@@ -278,38 +280,28 @@ def test(testloader):
 
 
 def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
-    v_array = torch.from_numpy(v_array)
-    if USE_CUDA:
-        loss = nn.L1Loss(size_average=False).cuda()
-        v_array = v_array.cuda()
-    else:
-        loss = nn.L1Loss(size_average=False)
+    output = output.cpu().detach().numpy()
+    target_map = target_map.cpu().numpy()
 
     for id in range(args.batch_size):
+        print("batch=%d" % (id+1))
         single_output = output[id, :, :, :]
         target = target_map[id, :, :]
-        target = target.cpu().numpy()
         result = np.zeros(target.shape)
+        nbrs = NearestNeighbors(
+            n_neighbors=1, algorithm='auto').fit(v_array)
 
-        for i in range(single_output.size(1)):
-            for j in range(single_output.size(2)):
-                min_index = 0
-                min_loss = 1000000
-                for k in range(v_array.size(0)):
-                    result_loss = loss(single_output[:, i, j], v_array[k, :])
-                    if min_loss > result_loss:
-                        min_loss = result_loss
-                        if k != 182:
-                            min_index = k
-                        else:
-                            min_index = 255
-                result[i, j] = min_index
-                print("result[%d,%d]=%d" % (i, j, min_index))
+        for i in tqdm(range(single_output.shape[1])):
+            for j in range(single_output.shape[2]):
+                X = single_output[:, i, j]
+                X = X[np.newaxis, :]
+                distance, indices = nbrs.kneighbors(X)
+                result[i, j] = indices[0, 0]
 
         data_num = 0
         correct_num = 0
-        for i in range(output.size(2)):
-            for j in range(output.size(3)):
+        for i in range(output.shape[2]):
+            for j in range(output.shape[3]):
                 data_num = data_num + 1
                 if result[i, j] == target[i, j]:
                     correct_num = correct_num + 1
