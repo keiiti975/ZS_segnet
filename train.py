@@ -32,7 +32,7 @@ imsize = 224
 
 # Training settings
 parser = argparse.ArgumentParser(
-    description='ZS_segnet,coco can not change batch_size')
+    description='segnet,coco can not change batch_size')
 parser.add_argument('--batch_size', type=int, default=1, metavar='N',
                     help='input batch size for training (default: 1)',)
 parser.add_argument('--epochs', type=int, default=30, metavar='N',
@@ -93,23 +93,6 @@ if args.test is False:
         X=X,
         opts=dict(
             title='train_accuracy',
-            xlabel='epoch',
-            ylabel='accuracy'
-        )
-    )
-else:
-    win = vis.scatter(
-        X=X,
-        opts=dict(
-            title='test_loss',
-            xlabel='epoch',
-            ylabel='loss'
-        )
-    )
-    win_acc = vis.scatter(
-        X=X,
-        opts=dict(
-            title='test_accuracy',
             xlabel='epoch',
             ylabel='accuracy'
         )
@@ -193,67 +176,29 @@ def train(epoch, trainloader):
 
 
 def test(testloader):
+    # set model to eval mode
     model.eval()
-
-    # define a loss
-    # 今回の場合背景クラスを考慮しないので重み付けはしない
-    if USE_CUDA:
-        loss = nn.CrossEntropyLoss().cuda()
-    else:
-        loss = nn.CrossEntropyLoss()
-
-    total_loss = 0
-
-    # define epoch_size
-    epoch_size = len(testloader)
-
-    # define batch_loss
-    batch_loss = 0
 
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
-        target = data['target'].long()
 
         if USE_CUDA:
             input = input.cuda()
-            target = target.cuda()
 
         # predictions
         output = model(input)
         # print("forward propagating ...")
 
-        # calculate loss
-        l_ = loss(output, target)
-        total_loss += l_.item()
-
-        # test conditions
-        print("id=%d, loss=%f"
-              % (batch_id, l_.item()))
-
         # output segmentation img
-        print(testloader.dataset.get_filename(batch_id)[0])
+        print("id=%d, filename=%s" %
+              (batch_id, testloader.dataset.get_filename(batch_id)[0]))
         filename = os.path.basename(
             testloader.dataset.get_filename(batch_id)[0])
         result = output[0, :, :, :]
         result = result.max(0)[1].cpu().numpy()
         Image.fromarray(np.uint8(result)).save(args.output_dir + filename)
-
-        # visualize test condition
-        if batch_id % 10 == 0 and batch_id != 0:
-            batch_loss = batch_loss + l_.item()
-            batch_loss = batch_loss / 10
-            # display visdom board
-            phase = batch_id / epoch_size
-            visualize(phase, batch_loss, win)
-            batch_loss = 0
-        else:
-            batch_loss = batch_loss + l_.item()
-        if batch_id % 100 == 0 and batch_id != 0:
-            evaluate(output, target, 0, epoch_size, batch_id)
-
-    return total_loss
 
 
 def evaluate(output, target, epoch, epoch_size, batch_id):
@@ -332,8 +277,7 @@ def main():
                        "./model/checkpoint_" + str(epoch) + ".pth")
         elif args.test is True and args.load is True:
             # test
-            test_loss = test(testloader)
-            print("test_loss:%f " % (test_loss))
+            test(testloader)
             break
         else:
             print('can not test the model!')
@@ -342,7 +286,8 @@ def main():
         print()
 
     # save model
-    torch.save(model.state_dict(), "./model/" + args.save_pth)
+    if args.test is False:
+        torch.save(model.state_dict(), "./model/" + args.save_pth)
 
 
 if __name__ == '__main__':

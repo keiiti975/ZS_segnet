@@ -100,23 +100,6 @@ if args.test is False:
             ylabel='accuracy'
         )
     )
-else:
-    win = vis.scatter(
-        X=X,
-        opts=dict(
-            title='test_loss',
-            xlabel='epoch',
-            ylabel='loss'
-        )
-    )
-    win_acc = vis.scatter(
-        X=X,
-        opts=dict(
-            title='test_accuracy',
-            xlabel='epoch',
-            ylabel='accuracy'
-        )
-    )
 
 # Create log model
 f_log = flog.make_log(args.batch_size)
@@ -148,6 +131,9 @@ def train(epoch, trainloader):
 
     # define batch_loss
     batch_loss = 0
+
+    # define annotations
+    v_array = trainloader.dataset.v_array
 
     # iteration over the batches
     for batch_id, data in enumerate(trainloader):
@@ -199,84 +185,50 @@ def train(epoch, trainloader):
             batch_loss = batch_loss + l_.item()
         if batch_id % 1000 == 0 and batch_id != 0:
             target_map = data["map"]
-            v_array = trainloader.dataset.v_array
             evaluate(output, target_map, v_array, epoch, epoch_size, batch_id)
 
     return total_loss
 
 
 def test(testloader):
+    # set model to eval mode
     model.eval()
 
-    # define a loss
-    # 今回の場合背景クラスを考慮しないので重み付けはしない
-    if USE_CUDA:
-        loss = nn.L1Loss(size_average=True).cuda()
-    else:
-        loss = nn.L1Loss(size_average=True)
-
-    total_loss = 0
-
-    # define epoch_size
-    epoch_size = len(testloader)
-
-    # define batch_loss
-    batch_loss = 0
+    # define neighbors
+    v_array = testloader.dataset.v_array
+    nbrs = NearestNeighbors(
+        n_neighbors=1, algorithm='auto').fit(v_array)
 
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
-        target = data['target'].long()
 
         if USE_CUDA:
             input = input.cuda()
-            target = target.cuda()
 
         # predictions
         output = model(input)
         # print("forward propagating ...")
 
-        # calculate loss
-        l_ = 0
-        output2 = output.view(output.size(0), output.size(1), -1)
-        target2 = target.view(target.size(0), output.size(1), -1)
-        output2.transpose(1, 2)
-        target2.transpose(1, 2)
-        for i in range(args.batch_size):
-            output_sample = output2[i, :, :]
-            target_sample = target2[i, :, :]
-            l_ = l_ + loss(output_sample, target_sample)
-
-        total_loss = total_loss + l_
-
-        # test conditions
-        print("id=%d, loss=%f" % (batch_id, l_.item()))
-
         # output segmentation img
         print(testloader.dataset.get_filename(batch_id)[0])
         filename = os.path.basename(
             testloader.dataset.get_filename(batch_id)[0])
-        result = output[0, :, :, :]
-        result = result.max(0)[1].cpu().numpy()
+        target_map = data["map"]
+        output = output.cpu().detach().numpy()
+        target_map = target_map.cpu().numpy()
+        single_output = output[0, :, :, :]
+        result = np.zeros(target_map[0, :, :].shape)
+        for i in tqdm(range(single_output.shape[1])):
+            for j in range(single_output.shape[2]):
+                X = single_output[:, i, j]
+                X = X[np.newaxis, :]
+                distance, indices = nbrs.kneighbors(X)
+                if indices[0, 0] == 182:
+                    indices[0, 0] = 255
+                result[i, j] = indices[0, 0]
         Image.fromarray(np.uint8(result)).save(args.output_dir + filename)
-
-        # visualize test condition
-        if batch_id % 10 == 0 and batch_id != 0:
-            batch_loss = batch_loss + l_.item() / (height * width)
-            batch_loss = batch_loss / 10
-            # display visdom board
-            phase = batch_id / epoch_size
-            visualize(phase, batch_loss, win)
-            batch_loss = 0
-        else:
-            batch_loss = batch_loss + l_.item()
-        if batch_id % 1000 == 0 and batch_id != 0:
-            target_map = data["map"]
-            v_array = testloader.dataset.v_array
-            evaluate(output, target_map, v_array, 0, epoch_size, batch_id)
-
-    return total_loss
 
 
 def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
@@ -284,7 +236,7 @@ def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
     target_map = target_map.cpu().numpy()
 
     for id in range(args.batch_size):
-        print("batch=%d" % (id+1))
+        print("batch=%d" % (id + 1))
         single_output = output[id, :, :, :]
         target = target_map[id, :, :]
         result = np.zeros(target.shape)
@@ -296,6 +248,8 @@ def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
                 X = single_output[:, i, j]
                 X = X[np.newaxis, :]
                 distance, indices = nbrs.kneighbors(X)
+                if indices[0, 0] == 182:
+                    indices[0, 0] = 255
                 result[i, j] = indices[0, 0]
 
         data_num = 0
@@ -345,15 +299,12 @@ def main():
 
     model.initialized_with_pretrained_weights()
 
-    # make log_file
-    f_log.open()
-
     # load model
     if args.load is True:
         model.load_from_filename("./model/" + args.load_pth)
 
     # train and test
-    for epoch in range(0, args.epochs - 1):
+    for epoch in range(0, args.epochs):
         print("epoch:%d" % (epoch))
 
         if args.test is False:
@@ -371,8 +322,7 @@ def main():
                        "./model/checkpoint_" + str(epoch) + ".pth")
         elif args.test is True and args.load is True:
             # test
-            test_loss = test(testloader)
-            print("test_loss " + str(test_loss))
+            test(testloader)
             break
         else:
             print('can not test the model!')
@@ -381,7 +331,8 @@ def main():
         print()
 
     # save model
-    torch.save(model.state_dict(), "./model/" + args.save_pth)
+    if args.test is False:
+        torch.save(model.state_dict(), "./model/" + args.save_pth)
 
 
 if __name__ == '__main__':

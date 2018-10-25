@@ -76,7 +76,7 @@ class ImageFolderDenseFileLists(data.Dataset):
         # apply transformation
         input_img = self.transform(input_img)
         target_img = self.transform(target_img)
-        if self.training is True self.padding is True:
+        if self.training is True and self.padding is True:
             input_img2 = np.asarray(input_img)
             height = input_img2.shape[0]
             width = input_img2.shape[1]
