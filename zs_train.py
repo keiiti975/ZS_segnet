@@ -3,6 +3,7 @@
 import numpy as np
 import argparse
 import os
+import os.path
 from random import shuffle
 import visdom
 from PIL import Image
@@ -140,33 +141,33 @@ def train(epoch, trainloader):
         # make batch tensor and target tensor
         input = Variable(data['input'])
         target = data['target']
+        mask = data['mask']
 
         if USE_CUDA:
             input = input.cuda()
             target = target.cuda()
+            mask = mask.cuda()
 
         # initialize gradients
         optimizer.zero_grad()
 
         # predictions
         output = model(input)
-        # print("forward propagating ...")
+
+        # mask tensor
+        output = output * mask
+        target = target * mask
 
         # calculate loss
         l_ = 0
-        output2 = output.view(output.size(0), output.size(1), -1)
-        target2 = target.view(target.size(0), output.size(1), -1)
-        output2.transpose(1, 2)
-        target2.transpose(1, 2)
         for i in range(args.batch_size):
-            output_sample = output2[i, :, :]
-            target_sample = target2[i, :, :]
+            output_sample = output[i, :, :, :]
+            target_sample = target[i, :, :, :]
             l_ = l_ + loss(output_sample, target_sample)
 
         total_loss += l_.item()
         # backward loss
         l_.backward()
-        # print("back propagating ...")
         # optimizer step
         optimizer.step()
 
@@ -199,6 +200,10 @@ def test(testloader):
     nbrs = NearestNeighbors(
         n_neighbors=1, algorithm='auto').fit(v_array)
 
+    # make output_dir
+    if not os.path.isdir(args.output_dir):
+        os.makedirs(args.output_dir)
+
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
@@ -209,17 +214,14 @@ def test(testloader):
 
         # predictions
         output = model(input)
-        # print("forward propagating ...")
 
         # output segmentation img
-        print(testloader.dataset.get_filename(batch_id)[0])
         filename = os.path.basename(
             testloader.dataset.get_filename(batch_id)[0])
-        target_map = data["map"]
+        print(filename)
         output = output.cpu().detach().numpy()
-        target_map = target_map.cpu().numpy()
         single_output = output[0, :, :, :]
-        result = np.zeros(target_map[0, :, :].shape)
+        result = np.zeros((single_output.shape[1], single_output.shape[2]))
         for i in tqdm(range(single_output.shape[1])):
             for j in range(single_output.shape[2]):
                 X = single_output[:, i, j]
@@ -256,9 +258,10 @@ def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
         correct_num = 0
         for i in range(output.shape[2]):
             for j in range(output.shape[3]):
-                data_num = data_num + 1
-                if result[i, j] == target[i, j]:
-                    correct_num = correct_num + 1
+                if target[i, j] < 200:
+                    data_num = data_num + 1
+                    if result[i, j] == target[i, j]:
+                        correct_num = correct_num + 1
         phase = epoch + batch_id / epoch_size
         visualize(phase, (correct_num / data_num), win_acc)
 
@@ -275,25 +278,25 @@ def visualize(phase, visualized_data, window):
 def main():
     # compose transforms
     train_transform = transforms.Compose(
-        # [transforms.RandomHorizontalFlip()]
-        []
+        [transforms.RandomResizedCrop(256, scale=(1.0, 1.0), ratio=(1.0, 1.0))]
     )
     test_transform = transforms.Compose(
-        # [transforms.RandomHorizontalFlip()]
         []
     )
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/test/input', target_root='./data/test/target',
-        filenames='./data/test/names.txt', semantic_filename='./class.txt',
-        training=True, batch_size=args.batch_size, transform=train_transform)
+        input_root='./data/train/input', target_root='./data/train/zs_target',
+        map_root='./data/train/target', filenames='./data/train/names.txt',
+        semantic_filename='./class.txt', training=True,
+        batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
     testset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/test/input', target_root='./data/test/target',
-        filenames='./data/test/names.txt', semantic_filename='./class.txt',
-        training=False, batch_size=args.batch_size, transform=test_transform)
+        input_root='./data/test/input', target_root=None,
+        map_root=None, filenames='./data/test/names.txt',
+        semantic_filename='./class.txt', training=False,
+        batch_size=1, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=1, shuffle=False, num_workers=8)
 

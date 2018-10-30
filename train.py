@@ -144,14 +144,12 @@ def train(epoch, trainloader):
 
         # predictions
         output = model(input)
-        # print("forward propagating ...")
 
         # calculate loss
         l_ = loss(output, target)
         total_loss += l_.item()
         # backward loss
         l_.backward()
-        # print("back propagating ...")
         # optimizer step
         optimizer.step()
 
@@ -178,6 +176,10 @@ def train(epoch, trainloader):
 def test(testloader):
     # set model to eval mode
     model.eval()
+
+    # make output_dir
+    if not os.path.isdir(args.output_dir):
+        os.makedirs(args.output_dir)
 
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
@@ -240,8 +242,8 @@ def main():
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/test/input', target_root='./data/test/target',
-        filenames='./data/test/names.txt',
+        input_root='./data/train/input', target_root='./data/train/zs_target',
+        filenames='./data/train/names.txt',
         training=True, batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)

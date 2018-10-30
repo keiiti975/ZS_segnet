@@ -9,10 +9,10 @@ import os
 import os.path
 from tqdm import tqdm
 
-max_size = 640  # max size of COCO
+max_size = 640  # unused parameter (max size of image)
 
 
-def make_dataset(input_dir, target_dir, filenames):
+def make_dataset(input_dir, target_dir, map_dir, filenames):
     """Create the dataset."""
     images = []
     # deal with multiple input
@@ -32,6 +32,11 @@ def make_dataset(input_dir, target_dir, filenames):
 
         if target_dir is not None:
             item.append(os.path.join(target_dir, filename))
+        else:
+            item.append(None)
+
+        if map_dir is not None:
+            item.append(os.path.join(map_dir, filename))
         else:
             item.append(None)
 
@@ -63,13 +68,13 @@ def make_vectors(filename):
 class ImageFolderDenseFileLists(data.Dataset):
     """Main Class for Image Folder loader."""
 
-    def __init__(self, input_root='./data/train/input',
-                 target_root='./data/train/target',
+    def __init__(self, input_root='./data/train/...',
+                 target_root='./data/train/...', map_root='./data/train/...',
                  filenames='', semantic_filename='./class.txt',
                  training=True, batch_size=1, transform=None):
         """Init function."""
         # get the lists of images
-        imgs = make_dataset(input_root, target_root, filenames)
+        imgs = make_dataset(input_root, target_root, map_root, filenames)
 
         # get semantic_vector array
         v_array = make_vectors(semantic_filename)
@@ -80,64 +85,60 @@ class ImageFolderDenseFileLists(data.Dataset):
 
         self.input_root = input_root
         self.target_root = target_root
+        self.map_root = map_root
         self.imgs = imgs
         self.training = training
         self.transform = transform
         self.v_array = v_array
-        if batch_size == 1:
-            self.padding = False
-        else:
-            self.padding = True
 
     def __getitem__(self, index):
         """Get item."""
 
-        input_paths = self.imgs[index][0]
-        target_path = self.imgs[index][1]
+        if self.training is True:
+            input_paths = self.imgs[index][0]
+            target_paths = self.imgs[index][1]
+            map_paths = self.imgs[index][2]
 
-        input_img = self.loader(input_paths)
-        target_img = self.loader(target_path)
+            input_img = self.loader(input_paths)
+            target_img = self.loader(target_paths)
+            map_img = self.loader(map_paths)
 
-        # apply transformation
-        input_img = self.transform(input_img)
-        target_img = self.transform(target_img)
-        if self.training is True and self.padding is True:
-            input_img2 = np.asarray(input_img)
-            height = input_img2.shape[0]
-            width = input_img2.shape[1]
-            transform_input = transforms.Compose(
-                [transforms.Pad(
-                    padding=((max_size - width) // 2,
-                             (max_size - height) // 2,
-                             (max_size - width) // 2 + (max_size - width) % 2,
-                             (max_size - height) // 2 +
-                             (max_size - height) % 2,
-                             ), fill=0)])
-            transform_target = transforms.Compose(
-                [transforms.Pad(
-                    padding=((max_size - width) // 2,
-                             (max_size - height) // 2,
-                             (max_size - width) // 2 + (max_size - width) % 2,
-                             (max_size - height) // 2 +
-                             (max_size - height) % 2,
-                             ), fill=255)])
-            input_img = transform_input(input_img)
-            target_img = transform_target(target_img)
+            # apply transformation
+            input_img = self.transform(input_img)
+            target_img = self.transform(target_img)
+            map_img = self.transform(map_img)
 
-        # target_img to tensor
-        target_img = np.asarray(target_img)
-        target_map = target_img
-        target_img = self.index2vec(target_img)
-        target_img = target_img.transpose(2, 0, 1)
-        target_img = torch.from_numpy(target_img)
+            # target_img to tensor
+            target_img = np.asarray(target_img)
+            target_img, mask = self.index2vec(target_img)
+            target_img = torch.from_numpy(target_img)
 
-        # input_img to tensor
-        transform = transforms.Compose([transforms.ToTensor()])
-        input_img = transform(input_img)
+            # map_img to tensor
+            target_map = np.asarray(map_img)
 
-        data = {'input': input_img, 'target': target_img, 'map': target_map}
+            # input_img to tensor
+            transform = transforms.Compose([transforms.ToTensor()])
+            input_img = transform(input_img)
 
-        return data
+            data = {'input': input_img, 'target': target_img,
+                    'mask': mask, 'map': target_map}
+
+            return data
+        else:
+            input_paths = self.imgs[index][0]
+
+            input_img = self.loader(input_paths)
+
+            # apply transformation
+            input_img = self.transform(input_img)
+
+            # input_img to tensor
+            transform = transforms.Compose([transforms.ToTensor()])
+            input_img = transform(input_img)
+
+            data = {'input': input_img}
+
+            return data
 
     def __len__(self):
         """Length."""
@@ -155,21 +156,52 @@ class ImageFolderDenseFileLists(data.Dataset):
         """Load Default loader."""
         return self.image_loader(path)
 
+    def padding(self, input_img, target_img, map_img):
+        """padding tensor"""
+        input_img2 = np.asarray(input_img)
+        height = input_img2.shape[0]
+        width = input_img2.shape[1]
+        transform_input = transforms.Compose(
+            [transforms.Pad(
+                padding=((max_size - width) // 2,
+                         (max_size - height) // 2,
+                         (max_size - width) // 2 +
+                         (max_size - width) % 2,
+                         (max_size - height) // 2 +
+                         (max_size - height) % 2,
+                         ), fill=0)])
+        transform_target = transforms.Compose(
+            [transforms.Pad(
+                padding=((max_size - width) // 2,
+                         (max_size - height) // 2,
+                         (max_size - width) // 2 +
+                         (max_size - width) % 2,
+                         (max_size - height) // 2 +
+                         (max_size - height) % 2,
+                         ), fill=255)])
+        input_img = transform_input(input_img)
+        target_img = transform_target(target_img)
+        map_img = transform_target(map_img)
+        return input_img, target_img, map_img
+
     def index2vec(self, img):
-        """index to semantic vector"""
-        annotation = []
-        index = 0
-        width = img.shape[1]
+        """index to semantic vector and return annotations, mask"""
+        image = img.copy()
+        mask = np.ones(img.shape, dtype='int32')
+        smv = np.zeros(self.v_array[0].shape, dtype='float32')
+        smv = np.append(smv[None, :], np.ones(
+            self.v_array[0].shape, dtype='float32')[None, :], axis=0)
         height = img.shape[0]
+        width = img.shape[1]
         for h in range(height):
-            list = []
             for w in range(width):
-                index = img[h, w]
+                index = image[h, w]
                 if index > 181:
-                    index = 182
+                    image[h, w] = 182
+                    mask[h, w] = 0
 
-                list.append(self.v_array[index])
-            annotation.append(list)
-
-        annotation = np.array(annotation, 'float32')
-        return annotation
+        annotation = self.v_array[image]
+        mask = smv[mask]
+        annotation = annotation.transpose(2, 0, 1)
+        mask = mask.transpose(2, 0, 1)
+        return annotation, mask
