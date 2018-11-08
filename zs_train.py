@@ -1,5 +1,5 @@
 """zero shot segmentation using segnet"""
-# import without torch
+# imports without torch
 import numpy as np
 import argparse
 import os
@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.optim as optim
 ##########
 
-# imports models
+# imports Segnet
 import model.segnet as segnet
 import zs_dataset_list as datasets
 
@@ -28,7 +28,7 @@ import zs_dataset_list as datasets
 import make_log as flog
 
 """
-# import convnet
+# imports convnet
 import model.convnet as convnet
 class_nbr = 256  # 出力次元数(COCOstuffのクラス数)
 """
@@ -63,6 +63,8 @@ parser.add_argument('--load', action='store_true', default=False,
                     help='enables load model')
 parser.add_argument('--test', action='store_true', default=False,
                     help='test the model')
+parser.add_argument('--head', action='store_true', default=False,
+                    help='enables head')
 args = parser.parse_args()
 
 # device settings
@@ -182,14 +184,8 @@ def train(epoch, trainloader):
 
         # calculate loss
         l_ = 0
-        output2 = output.view(output.size(0), output.size(1), -1)
-        target2 = target.view(target.size(0), target.size(1), -1)
-        output2 = output2.transpose(1, 2)
-        target2 = target2.transpose(1, 2)
-        for i in range(output.size(0)):
-            output_sample = output2[i, :, :]
-            target_sample = target2[i, :, :]
-            l_ = l_ + loss(output_sample, target_sample)
+        l_ = loss(output, target)
+        l_ = l_ * output.size(1)
 
         total_loss += l_.item()
         # backward loss
@@ -319,14 +315,14 @@ def main():
         semantic_filename='./v_class/class1.txt', training=True,
         batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=False, num_workers=1)
+        trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root=None,
         map_root=None, filenames='./data/test/names.txt',
         semantic_filename='./v_class/class1.txt', training=False,
         batch_size=1, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=1, shuffle=False, num_workers=1)
+        testset, batch_size=1, shuffle=False, num_workers=8)
 
     model.initialized_with_pretrained_weights()
 

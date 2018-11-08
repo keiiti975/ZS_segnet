@@ -63,6 +63,7 @@ def make_vectors(filename):
         vector_array.append(vector2)
 
     vector_array = np.array(vector_array, 'float32')
+    """
     # regulation
     length = np.sum(vector_array, axis=1) / vector_array.shape[1]
     std = np.std(vector_array, axis=1)
@@ -73,6 +74,7 @@ def make_vectors(filename):
     pca = PCA()
     pca.fit(vector_array)
     vector_array = pca.fit_transform(vector_array)
+    """
 
     return vector_array
 
