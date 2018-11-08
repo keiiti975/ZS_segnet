@@ -4,10 +4,8 @@ import numpy as np
 import argparse
 import os
 import os.path
-from random import shuffle
 import visdom
 from PIL import Image
-from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 
 ##########
@@ -29,6 +27,12 @@ import zs_dataset_list as datasets
 # imports utility
 import make_log as flog
 
+"""
+# import convnet
+import model.convnet as convnet
+class_nbr = 256  # 出力次元数(COCOstuffのクラス数)
+"""
+
 # input,label data settings
 input_nbr = 3  # 入力次元数
 label_nbr = 100  # 出力次元数(COCOstuffのセマンティックベクトルの次元数)
@@ -39,7 +43,7 @@ parser = argparse.ArgumentParser(
     description='ZS_segnet,coco can not change batch_size')
 parser.add_argument('--batch_size', type=int, default=1, metavar='N',
                     help='input batch size for training (default: 1)')
-parser.add_argument('--epochs', type=int, default=30, metavar='N',
+parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 30)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
@@ -72,29 +76,45 @@ if args.cuda:
 
 # Create SegNet model
 model = segnet.SegNet(input_nbr, label_nbr)
+"""
+head = convnet.ConvNet(label_nbr, class_nbr)
+"""
 if USE_CUDA:  # convert to cuda if needed
     model.cuda()
+    """
+    head.cuda()
+    """
 else:
     model.float()
+    """
+    head.float()
+    """
 model.eval()
+"""
+head.eval()
+"""
 print(model)
+"""
+print(head)
+"""
 
 # Create visdom
 vis = visdom.Visdom()
 
 # init window
-X = np.array([[0, 0]])
 if args.test is False:
-    win = vis.scatter(
-        X=X,
+    win = vis.line(
+        X=np.array([0]),
+        Y=np.array([0]),
         opts=dict(
             title='train_loss',
             xlabel='epoch',
             ylabel='loss'
         )
     )
-    win_acc = vis.scatter(
-        X=X,
+    win_acc = vis.line(
+        X=np.array([0]),
+        Y=np.array([0]),
         opts=dict(
             title='train_accuracy',
             xlabel='epoch',
@@ -121,9 +141,9 @@ def train(epoch, trainloader):
     # define a loss
     # 今回の場合背景クラスを考慮しないので重み付けはしない
     if USE_CUDA:
-        loss = nn.L1Loss(size_average=True).cuda()
+        loss = nn.MSELoss(size_average=True).cuda()
     else:
-        loss = nn.L1Loss(size_average=True)
+        loss = nn.MSELoss(size_average=True)
 
     total_loss = 0
 
@@ -135,6 +155,7 @@ def train(epoch, trainloader):
 
     # define annotations
     v_array = trainloader.dataset.v_array
+    v_array = torch.from_numpy(v_array)
 
     # iteration over the batches
     for batch_id, data in enumerate(trainloader):
@@ -147,6 +168,7 @@ def train(epoch, trainloader):
             input = input.cuda()
             target = target.cuda()
             mask = mask.cuda()
+            v_array = v_array.cuda()
 
         # initialize gradients
         optimizer.zero_grad()
@@ -160,9 +182,13 @@ def train(epoch, trainloader):
 
         # calculate loss
         l_ = 0
-        for i in range(args.batch_size):
-            output_sample = output[i, :, :, :]
-            target_sample = target[i, :, :, :]
+        output2 = output.view(output.size(0), output.size(1), -1)
+        target2 = target.view(target.size(0), target.size(1), -1)
+        output2 = output2.transpose(1, 2)
+        target2 = target2.transpose(1, 2)
+        for i in range(output.size(0)):
+            output_sample = output2[i, :, :]
+            target_sample = target2[i, :, :]
             l_ = l_ + loss(output_sample, target_sample)
 
         total_loss += l_.item()
@@ -195,10 +221,9 @@ def test(testloader):
     # set model to eval mode
     model.eval()
 
-    # define neighbors
+    # define v_array
     v_array = testloader.dataset.v_array
-    nbrs = NearestNeighbors(
-        n_neighbors=1, algorithm='auto').fit(v_array)
+    v_array = torch.from_numpy(v_array)
 
     # make output_dir
     if not os.path.isdir(args.output_dir):
@@ -211,6 +236,7 @@ def test(testloader):
 
         if USE_CUDA:
             input = input.cuda()
+            v_array = v_array.cuda()
 
         # predictions
         output = model(input)
@@ -219,60 +245,62 @@ def test(testloader):
         filename = os.path.basename(
             testloader.dataset.get_filename(batch_id)[0])
         print(filename)
-        output = output.cpu().detach().numpy()
         single_output = output[0, :, :, :]
-        result = np.zeros((single_output.shape[1], single_output.shape[2]))
-        for i in tqdm(range(single_output.shape[1])):
-            for j in range(single_output.shape[2]):
-                X = single_output[:, i, j]
-                X = X[np.newaxis, :]
-                distance, indices = nbrs.kneighbors(X)
-                if indices[0, 0] == 182:
-                    indices[0, 0] = 255
-                result[i, j] = indices[0, 0]
-        Image.fromarray(np.uint8(result)).save(args.output_dir + filename)
+        single_output = single_output.transpose(0, 1).transpose(1, 2)
+        result = min_euclidean(single_output, v_array)
+        result = np.uint8(result.cpu().numpy())
+        Image.fromarray(result).save(args.output_dir + filename)
 
 
 def evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
-    output = output.cpu().detach().numpy()
     target_map = target_map.cpu().numpy()
-
-    for id in range(args.batch_size):
-        print("batch=%d" % (id + 1))
+    data_num = 0
+    correct_num = 0
+    print("evaluating ...")
+    for id in tqdm(range(output.shape[0])):
         single_output = output[id, :, :, :]
         target = target_map[id, :, :]
-        result = np.zeros(target.shape)
-        nbrs = NearestNeighbors(
-            n_neighbors=1, algorithm='auto').fit(v_array)
+        single_output = single_output.transpose(0, 1).transpose(1, 2)
 
-        for i in tqdm(range(single_output.shape[1])):
-            for j in range(single_output.shape[2]):
-                X = single_output[:, i, j]
-                X = X[np.newaxis, :]
-                distance, indices = nbrs.kneighbors(X)
-                if indices[0, 0] == 182:
-                    indices[0, 0] = 255
-                result[i, j] = indices[0, 0]
+        result = min_euclidean(single_output, v_array)
+        result = np.uint8(result.cpu().numpy())
 
-        data_num = 0
-        correct_num = 0
-        for i in range(output.shape[2]):
-            for j in range(output.shape[3]):
+        for i in range(output.size(2)):
+            for j in range(output.size(3)):
                 if target[i, j] < 200:
                     data_num = data_num + 1
                     if result[i, j] == target[i, j]:
                         correct_num = correct_num + 1
-        phase = epoch + batch_id / epoch_size
-        visualize(phase, (correct_num / data_num), win_acc)
+    phase = epoch + batch_id / epoch_size
+    visualize(phase, (correct_num / data_num), win_acc)
 
 
 def visualize(phase, visualized_data, window):
-    X2 = np.array([[phase, visualized_data]])
-    vis.scatter(
-        X=X2,
+    vis.line(
+        X=np.array([phase]),
+        Y=np.array([visualized_data]),
         update='append',
         win=window
     )
+
+
+def min_euclidean(out, sem):
+    """pytorch calculate euclidean"""
+    ab = torch.mm(out.view(-1, label_nbr), sem.t())
+    ab = ab.view(out.size(0), out.size(1), sem.size(0))
+    aa = (sem**2).sum(1)
+    bb = (out**2).sum(-1)
+    res = aa[None, None, :] + bb[:, :, None] - 2 * ab
+    return res.min(-1)[1]
+
+
+def min_euclidean2(out, sem):
+    """numpy calculate euclidean"""
+    ab = np.dot(out, sem.transpose())
+    aa = (sem**2).sum(1)
+    bb = (out**2).sum(-1)
+    res = aa[None, None, :] + bb[:, :, None] - 2 * ab
+    return res.argmin(-1)
 
 
 def main():
@@ -286,25 +314,28 @@ def main():
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/train/input', target_root='./data/train/zs_target',
+        input_root='./data/train/input', target_root='./data/train/zs_target2',
         map_root='./data/train/target', filenames='./data/train/names.txt',
-        semantic_filename='./class.txt', training=True,
+        semantic_filename='./v_class/class1.txt', training=True,
         batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=False, num_workers=8)
+        trainset, batch_size=args.batch_size, shuffle=False, num_workers=1)
     testset = datasets.ImageFolderDenseFileLists(
         input_root='./data/test/input', target_root=None,
         map_root=None, filenames='./data/test/names.txt',
-        semantic_filename='./class.txt', training=False,
+        semantic_filename='./v_class/class1.txt', training=False,
         batch_size=1, transform=test_transform)
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=1, shuffle=False, num_workers=8)
+        testset, batch_size=1, shuffle=False, num_workers=1)
 
     model.initialized_with_pretrained_weights()
 
     # load model
     if args.load is True:
         model.load_from_filename("./model/" + args.load_pth)
+        """
+        head.load_from_filename("./model/head_" + args.load_pth)
+        """
 
     # train and test
     for epoch in range(0, args.epochs):
@@ -323,6 +354,10 @@ def main():
             # save checkpoint
             torch.save(model.state_dict(),
                        "./model/checkpoint_" + str(epoch) + ".pth")
+            """
+            torch.save(head.state_dict(),
+                       "./model/head_checkpoint_" + str(epoch) + ".pth")
+            """
         elif args.test is True and args.load is True:
             # test
             test(testloader)
@@ -336,6 +371,9 @@ def main():
     # save model
     if args.test is False:
         torch.save(model.state_dict(), "./model/" + args.save_pth)
+        """
+        torch.save(head.state_dict(), "./model/head_" + args.save_pth)
+        """
 
 
 if __name__ == '__main__':

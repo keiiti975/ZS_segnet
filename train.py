@@ -242,7 +242,7 @@ def main():
 
     # load dataset
     trainset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/train/input', target_root='./data/train/zs_target',
+        input_root='./data/train/input', target_root='./data/train/target',
         filenames='./data/train/names.txt',
         training=True, batch_size=args.batch_size, transform=train_transform)
     trainloader = torch.utils.data.DataLoader(

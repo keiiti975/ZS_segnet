@@ -4,6 +4,7 @@ import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import numpy as np
+from sklearn.decomposition import PCA
 from PIL import Image
 import os
 import os.path
@@ -62,6 +63,17 @@ def make_vectors(filename):
         vector_array.append(vector2)
 
     vector_array = np.array(vector_array, 'float32')
+    # regulation
+    length = np.sum(vector_array, axis=1) / vector_array.shape[1]
+    std = np.std(vector_array, axis=1)
+    for i in range(vector_array.shape[0]):
+        vector_array[i] = (vector_array[i] - length[i]) / std[i]
+        vector_array[i] = vector_array[i] + length[i]
+    # PCA
+    pca = PCA()
+    pca.fit(vector_array)
+    vector_array = pca.fit_transform(vector_array)
+
     return vector_array
 
 
@@ -191,15 +203,8 @@ class ImageFolderDenseFileLists(data.Dataset):
         smv = np.zeros(self.v_array[0].shape, dtype='float32')
         smv = np.append(smv[None, :], np.ones(
             self.v_array[0].shape, dtype='float32')[None, :], axis=0)
-        height = img.shape[0]
-        width = img.shape[1]
-        for h in range(height):
-            for w in range(width):
-                index = image[h, w]
-                if index > 181:
-                    image[h, w] = 182
-                    mask[h, w] = 0
-
+        image[img > 181] = 182
+        mask[img > 181] = 0
         annotation = self.v_array[image]
         mask = smv[mask]
         annotation = annotation.transpose(2, 0, 1)
