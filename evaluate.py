@@ -6,8 +6,6 @@ import cv2
 from tqdm import tqdm
 from datetime import datetime
 
-eval_class = 26  # sum of evaluate class
-
 
 def make_dataset(target_dir, predict_dir, filenames):
     """Create the dataset."""
@@ -28,15 +26,13 @@ def make_dataset(target_dir, predict_dir, filenames):
     return images
 
 
-def evaluate(target_img, predict_img):
-    GT_pixel_num = np.zeros(eval_class, dtype='int32')
-    predict_pixel_num = np.zeros(eval_class, dtype='int32')
-    predict_TP_num = np.zeros(eval_class, dtype='int32')
-    GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+def evaluate(target_img, predict_img, GT_list, GT_num):
+    GT_pixel_num = np.zeros(GT_num, dtype='int32')
+    predict_pixel_num = np.zeros(GT_num, dtype='int32')
+    predict_TP_num = np.zeros(GT_num, dtype='int32')
     GT_root = np.ones(target_img.shape, dtype='int32')
 
-    for i in range(eval_class):
+    for i in range(GT_num):
         GT = GT_root * GT_list[i]
         img1 = target_img - GT
         img2 = predict_img - GT
@@ -59,13 +55,16 @@ def evaluate(target_img, predict_img):
 
 def main():
     target_dir = './data/test/target'
-    predict_dir = './data/MSE_batch8_class1_reg'
+    predict_dir = './data/MSE_batch12'
     filenames = './data/test/names.txt'
     image_path = make_dataset(target_dir, predict_dir, filenames)
     length = len(image_path)
-    GT_pixel_all = np.zeros(eval_class, dtype='int32')
-    predict_pixel_all = np.zeros(eval_class, dtype='int32')
-    predict_TP_all = np.zeros(eval_class, dtype='int32')
+    GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
+               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+    GT_num = len(GT_list)
+    GT_pixel_all = np.zeros(GT_num, dtype='int32')
+    predict_pixel_all = np.zeros(GT_num, dtype='int32')
+    predict_TP_all = np.zeros(GT_num, dtype='int32')
     print("evaluating ...")
     for i in tqdm(range(length)):
         target_img = cv2.imread(image_path[i][0], cv2.IMREAD_GRAYSCALE)
@@ -73,7 +72,7 @@ def main():
         if predict_img is None:
             continue
         GT_pixel_num, predict_pixel_num, predict_TP_num = evaluate(
-            target_img, predict_img)
+            target_img, predict_img, GT_list, GT_num)
         GT_pixel_all = GT_pixel_all + GT_pixel_num
         predict_pixel_all = predict_pixel_all + predict_pixel_num
         predict_TP_all = predict_TP_all + predict_TP_num
@@ -96,14 +95,14 @@ def main():
                "wall_tile", "cardboard"]
     mIoU = 0
     mAcc = 0
-    for i in range(eval_class):
+    for i in range(GT_num):
         mIoU = mIoU + IoU[i]
         mAcc = mAcc + Acc[i]
         print("%s: IoU=%f, Acc=%f" % (GT_list[i], IoU[i], Acc[i]))
         f.write(GT_list[i] + ": IoU=" +
                 str(IoU[i]) + ", Acc=" + str(Acc[i]) + "\n")
-    mIoU = mIoU / eval_class
-    mAcc = mAcc / eval_class
+    mIoU = mIoU / GT_num
+    mAcc = mAcc / GT_num
     print("mIoU=%f, mAcc=%f" % (mIoU, mAcc))
     f.write("mIoU=" + str(mIoU) + ", mAcc=" + str(mAcc) + "\n")
     f.close()

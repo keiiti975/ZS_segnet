@@ -8,13 +8,13 @@ import torch.nn.functional as F
 class SegNet(nn.Module):
     """Segnet network."""
 
-    def __init__(self, input_nbr, label_nbr):
+    def __init__(self, input_nbr, label_nbr, momentum):
         """Init fields."""
         super(SegNet, self).__init__()
 
         self.input_nbr = input_nbr
 
-        batchNorm_momentum = 0.1
+        batchNorm_momentum = momentum
 
         self.conv11 = nn.Conv2d(input_nbr, 64, kernel_size=3, padding=1)
         self.bn11 = nn.BatchNorm2d(64, momentum=batchNorm_momentum)
@@ -153,7 +153,7 @@ class SegNet(nn.Module):
 
     def initialized_with_pretrained_weights(self):
         """Initialiaze."""
-        print("initialize from vgg16.pth")
+        print("initialize from vgg16")
         corresp_name = {
             "features.0.weight": "conv11.weight",
             "features.0.bias": "conv11.bias",
