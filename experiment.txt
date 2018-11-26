@@ -5,6 +5,7 @@ MSE_batch12_jacPCA
 
 実験中
 MSE_batch12_NZSL
+decoder_batch2
 
 行いたい実験
 

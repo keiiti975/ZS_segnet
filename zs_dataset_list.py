@@ -195,9 +195,13 @@ class ImageFolderDenseFileLists(data.Dataset):
                 if self.config["encoder"] is True:
                     """encoder"""
                     if self.config["ZSL"] is True:
-                        index = self.GT_list[index]
-                    input_map = np.full((256, 256), index)
-                    target_vec, mask = self.index2vec(input_map)
+                        GT_index = self.GT_list[index]
+                        input_map = np.full((256, 256), index)
+                        index_map = np.full((256, 256), GT_index)
+                        target_vec, mask = self.index2vec(index_map)
+                    else:
+                        input_map = np.full((256, 256), index)
+                        target_vec, mask = self.index2vec(input_map)
                     # input_map to tensor
                     input_map = torch.from_numpy(input_map[None, :, :])
                     input_map = input_map.float()
@@ -208,9 +212,13 @@ class ImageFolderDenseFileLists(data.Dataset):
                 else:
                     """decoder"""
                     if self.config["ZSL"] is True:
-                        index = self.GT_list[index]
-                    input_map = np.full((256, 256), index)
-                    target_map = input_map.copy()
+                        GT_index = self.GT_list[index]
+                        input_map = np.full((256, 256), GT_index)
+                        index_map = np.full((256, 256), index)
+                        target_map = index_map.copy()
+                    else:
+                        input_map = np.full((256, 256), index)
+                        target_map = input_map.copy()
                     input_vec, mask = self.index2vec(input_map)
                     # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)

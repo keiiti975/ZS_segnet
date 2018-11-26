@@ -119,19 +119,34 @@ vis = visdom.Visdom()
 
 # init window
 if p_args.test is False:
-    win = vis.line(
-        X=np.array([0]),
-        Y=np.array([0]),
-        opts=dict(
-            title='train_loss',
-            xlabel='epoch',
-            ylabel='loss',
-            ytickmin=0.0,
-            ytickmax=1.0,
-            width=800,
-            height=400
+    if args["decoder"] is True:
+        """loss = KLD"""
+        win = vis.line(
+            X=np.array([0]),
+            Y=np.array([0]),
+            opts=dict(
+                title='train_loss',
+                xlabel='epoch',
+                ylabel='loss',
+                width=800,
+                height=400
+            )
         )
-    )
+    else:
+        """loss = MSE"""
+        win = vis.line(
+            X=np.array([0]),
+            Y=np.array([0]),
+            opts=dict(
+                title='train_loss',
+                xlabel='epoch',
+                ylabel='loss',
+                ytickmin=0.0,
+                ytickmax=1.0,
+                width=800,
+                height=400
+            )
+        )
     win_acc = vis.line(
         X=np.array([0]),
         Y=np.array([0]),
@@ -368,7 +383,7 @@ def head_train(epoch, trainloader):
                   (epoch, batch_id, l_.item()))
 
         # visualize train condition
-        if batch_id % 5 == 0 and batch_id != 0:
+        if batch_id % 2 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
             batch_loss = batch_loss / 5
             # display visdom board
@@ -558,7 +573,7 @@ def head_evaluate(output, target_map, epoch, epoch_size, batch_id, ZSL):
     GT_num = len(GT_list)
     print("evaluating ...")
     if args["model"] is True:
-        for id in tqdm(range(output.size(0))):
+        for id in range(output.size(0)):
             single_output = output[id, :, :, :]
             target = target_map[id, :, :].cpu().numpy()
             result = single_output.max(0)[1].cpu().numpy()
@@ -567,7 +582,7 @@ def head_evaluate(output, target_map, epoch, epoch_size, batch_id, ZSL):
             data_num += single_data_num
             correct_num += single_correct_num
     else:
-        for id in tqdm(range(output.size(0))):
+        for id in range(output.size(0)):
             single_output = output[id, :, :, :]
             target = target_map[id, :, :].cpu().numpy()
             result = single_output.max(0)[1].cpu().numpy()

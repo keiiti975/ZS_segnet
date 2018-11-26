@@ -8,13 +8,13 @@ import torch.nn.functional as F
 class ConvNet(nn.Module):
     """Segnet network."""
 
-    def __init__(self, input_nbr, label_nbr):
+    def __init__(self, input_nbr, label_nbr, momentum):
         """Init fields."""
         super(ConvNet, self).__init__()
 
         self.input_nbr = input_nbr
 
-        batchNorm_momentum = 0.1
+        batchNorm_momentum = momentum
 
         self.conv1 = nn.Conv2d(input_nbr, input_nbr, kernel_size=1)
         self.bn1 = nn.BatchNorm2d(input_nbr, momentum=batchNorm_momentum)
