@@ -137,6 +137,9 @@ class ImageFolderDenseFileLists(data.Dataset):
         self.transform = transform
         self.v_array = v_array
         self.config = config
+        if config["model"] is False:
+            self.GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
+                            149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
 
     def __getitem__(self, index):
         """Get item."""
@@ -191,6 +194,8 @@ class ImageFolderDenseFileLists(data.Dataset):
                 """false model"""
                 if self.config["encoder"] is True:
                     """encoder"""
+                    if self.config["ZSL"] is True:
+                        index = self.GT_list[index]
                     input_map = np.full((256, 256), index)
                     target_vec, mask = self.index2vec(input_map)
                     # input_map to tensor
@@ -202,13 +207,15 @@ class ImageFolderDenseFileLists(data.Dataset):
                     data = {'input': input_map, 'target': target_vec}
                 else:
                     """decoder"""
+                    if self.config["ZSL"] is True:
+                        index = self.GT_list[index]
                     input_map = np.full((256, 256), index)
                     target_map = input_map.copy()
                     input_vec, mask = self.index2vec(input_map)
-                    # target_map to tensor
-                    target_map = torch.from_numpy(target_map)
                     # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)
+                    # target_map to tensor
+                    target_map = torch.from_numpy(target_map)
 
                     data = {'input': input_vec, 'target': target_map}
 
@@ -233,8 +240,11 @@ class ImageFolderDenseFileLists(data.Dataset):
             else:
                 if self.config["decoder"] is True:
                     """decoder(test)"""
-                    input_vec = np.full((256, 256), index)
-                    input_vec, mask = self.index2vec(input_vec)
+                    if self.config["ZSL"] is True:
+                        index = self.GT_list[index]
+                    input_map = np.full((256, 256), index)
+                    input_vec, mask = self.index2vec(input_map)
+                    # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)
                     data = {'input': input_vec}
 
@@ -244,6 +254,8 @@ class ImageFolderDenseFileLists(data.Dataset):
         """Length."""
         if self.config["model"] is True:
             return len(self.imgs)
+        elif self.config["ZSL"] is True:
+            return len(self.GT_list)
         else:
             return self.v_array.shape[0]
 

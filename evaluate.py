@@ -5,6 +5,12 @@ import os.path
 import cv2
 from tqdm import tqdm
 from datetime import datetime
+import argparse
+
+parser = argparse.ArgumentParser(description='evaluate ZS_segnet')
+parser.add_argument('path', type=str,
+                    help='load image path(=project name)  (place: "./data") ')
+args = parser.parse_args()
 
 
 def make_dataset(target_dir, predict_dir, filenames):
@@ -55,7 +61,7 @@ def evaluate(target_img, predict_img, GT_list, GT_num):
 
 def main():
     target_dir = './data/test/target'
-    predict_dir = './data/MSE_batch12'
+    predict_dir = os.path.join('./data', args.path)
     filenames = './data/test/names.txt'
     image_path = make_dataset(target_dir, predict_dir, filenames)
     length = len(image_path)

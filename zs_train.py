@@ -149,8 +149,7 @@ f_log = flog.make_log(args["project_dir"])
 
 # define the optimizer
 if args["encoder"] is True or args["decoder"] is True:
-    optimizer = optim.Adam(
-        head.parameters(), lr=args["lr"])
+    optimizer = optim.Adam(head.parameters(), lr=args["lr"])
 else:
     optimizer = optim.Adam(model.parameters(), lr=args["lr"])
 
@@ -183,7 +182,7 @@ def model_train(epoch, trainloader):
     v_array = trainloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
     if USE_CUDA:
@@ -248,15 +247,15 @@ def model_train(epoch, trainloader):
             phase = epoch + batch_id / epoch_size
             visualize(phase, batch_loss, win)
             batch_loss = 0
-        else:
-            batch_loss = batch_loss + l_.item()
-        if batch_id % 30 == 0 and batch_id != 0:
+            # evaluate
             target_map = data["map"]
             model.eval()
             output = model(input)
             model_evaluate(output, target_map, v_array,
                            epoch, epoch_size, batch_id, args["ZSL"])
             model.train()
+        else:
+            batch_loss = batch_loss + l_.item()
 
     return total_loss
 
@@ -284,7 +283,7 @@ def head_train(epoch, trainloader):
     v_array = trainloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
     if USE_CUDA:
@@ -376,18 +375,20 @@ def head_train(epoch, trainloader):
             phase = epoch + batch_id / epoch_size
             visualize(phase, batch_loss, win)
             batch_loss = 0
+            # evaluate
+            if args["decoder"] is True:
+                """decoder only"""
+                head.eval()
+                if args["model"] is True:
+                    target = data["map"]
+                    output = head(semantic)
+                else:
+                    output = head(input)
+                head_evaluate(output, target, epoch,
+                              epoch_size, batch_id, args["ZSL"])
+                head.train()
         else:
             batch_loss = batch_loss + l_.item()
-        if args["decoder"] is True and batch_id % 1 == 0:
-            """decoder only"""
-            head.eval()
-            if args["model"] is True:
-                target = data["map"]
-                output = head(semantic)
-            else:
-                output = head(input)
-            head_evaluate(output, target, epoch, epoch_size, batch_id, args["ZSL"])
-            head.train()
 
     return total_loss
 
@@ -400,7 +401,8 @@ def model_test(testloader):
     v_array = testloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+        GT_num = len(GT_list)
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
     if USE_CUDA:
@@ -428,6 +430,10 @@ def model_test(testloader):
         single_output = output[0, :, :, :]
         single_output = single_output.transpose(0, 1).transpose(1, 2)
         result = min_euclidean(single_output, v_array).cpu().numpy()
+        img1 = result.copy()
+        if args["ZSL"] is True:
+            for i in range(GT_num):
+                result[img1 == i] = GT_list[i]
         result = np.uint8(result)
 
         Image.fromarray(result).save(
@@ -447,7 +453,8 @@ def head_test(testloader):
     v_array = testloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+        GT_num = len(GT_list)
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
     if USE_CUDA:
@@ -489,6 +496,10 @@ def head_test(testloader):
 
         result = output[0, :, :, :]
         result = result.max(0)[1].cpu().numpy()
+        img1 = result.copy()
+        if args["ZSL"] is True:
+            for i in range(GT_num):
+                result[img1 == i] = GT_list[i]
         result = np.uint8(result)
         Image.fromarray(result).save(
             os.path.join(args["output_dir"], filename))
@@ -546,14 +557,28 @@ def head_evaluate(output, target_map, epoch, epoch_size, batch_id, ZSL):
     GT_root = np.ones(target_map[0, :, :].shape, dtype='int32')
     GT_num = len(GT_list)
     print("evaluating ...")
-    for id in tqdm(range(output.size(0))):
-        single_output = output[id, :, :, :]
-        target = target_map[id, :, :].cpu().numpy()
-        result = single_output.max(0)[1].cpu().numpy()
-        single_data_num, single_correct_num = evaluate_(
-            target, result, GT_root, GT_list, GT_num, ZSL)
-        data_num += single_data_num
-        correct_num += single_correct_num
+    if args["model"] is True:
+        for id in tqdm(range(output.size(0))):
+            single_output = output[id, :, :, :]
+            target = target_map[id, :, :].cpu().numpy()
+            result = single_output.max(0)[1].cpu().numpy()
+            single_data_num, single_correct_num = evaluate_(
+                target, result, GT_root, GT_list, GT_num, ZSL)
+            data_num += single_data_num
+            correct_num += single_correct_num
+    else:
+        for id in tqdm(range(output.size(0))):
+            single_output = output[id, :, :, :]
+            target = target_map[id, :, :].cpu().numpy()
+            result = single_output.max(0)[1].cpu().numpy()
+            # calculate normal accuracy
+            img = np.ones(target.shape)
+            img[target >= 182] = 0
+            data_num += np.sum(img)
+            img = result - target
+            img2 = np.zeros(target.shape)
+            img2[img == 0] = 1
+            correct_num += np.sum(img2)
 
     phase = epoch + batch_id / epoch_size
     if data_num == 0:

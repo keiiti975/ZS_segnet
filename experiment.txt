@@ -1,0 +1,10 @@
+行った実験
+MSE_batch12
+MSE_batch12_cosPCA
+MSE_batch12_jacPCA
+
+実験中
+MSE_batch12_NZSL
+
+行いたい実験
+
