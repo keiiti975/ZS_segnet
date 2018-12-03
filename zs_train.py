@@ -8,6 +8,7 @@ import visdom
 from PIL import Image
 from tqdm import tqdm
 import json
+import sys
 
 ##########
 # imports torch
@@ -45,7 +46,6 @@ parser.add_argument('config', type=str,
 p_args = parser.parse_args()
 f_config = open(os.path.join("./config", p_args.config + ".json"), "r")
 args = json.load(f_config)
-vp_args = vars(p_args)
 for key, value in args.items():
     if value == "true":
         args[key] = True
@@ -57,7 +57,7 @@ print(args)
 p_args.cuda = not p_args.no_cuda and torch.cuda.is_available()
 USE_CUDA = p_args.cuda
 
-# input,label data settings
+# data settings
 if args["model"] is True and args["encoder"] is True:
     input_nbr = args["input_nbr"]  # 入力次元数
     semantic_nbr = args["semantic_nbr"]  # 特徴次元数
@@ -75,52 +75,63 @@ torch.manual_seed(args["seed"])
 if p_args.cuda:
     torch.cuda.manual_seed(args["seed"])
 
-if args["model"] is True:
-    # Create SegNet model
-    if args["encoder"] is False and args["decoder"] is False:
-        model = segnet.SegNet(input_nbr, target_nbr, args["momentum"])
-    else:
+# create models
+"""
+(1)model and decoder(SSE is False)
+SegNet(input_nbr, semantic_nbr)
+ConvNet(semantic_nbr, target_nbr)
+(2)model and decoder(SSE is True)
+SegNet(input_nbr, target_nbr)
+ConvNet(semantic_nbr, target_nbr)
+(3)model only
+SegNet(input_nbr, target_nbr)
+(4)decoder only
+ConvNet(input_nbr, target_nbr)
+(5)encoder only
+ConvNet(input_nbr, target_nbr)
+"""
+if args["model"] is True and args["decoder"] is True:
+    if args["SSE"] is False:
+        """(1)"""
         model = segnet.SegNet(input_nbr, semantic_nbr, args["momentum"])
+        head = decoder.ConvNet(semantic_nbr, target_nbr, args["momentum"])
+    else:
+        """(2)"""
+        model = segnet.SegNet(input_nbr, target_nbr, args["momentum"])
+        head = decoder.ConvNet(semantic_nbr, target_nbr, args["momentum"])
+elif args["model"] is True:
+    """(3)"""
+    model = segnet.SegNet(input_nbr, target_nbr, args["momentum"])
+elif args["decoder"] is True:
+    """(4)"""
+    head = decoder.ConvNet(input_nbr, target_nbr, args["momentum"])
+elif args["encoder"] is True:
+    """(5)"""
+    head = encoder.ConvNet(input_nbr, target_nbr, args["momentum"])
+else:
+    sys.exit("model is not defined")
+if args["model"] is True:
     if USE_CUDA:  # convert to cuda if needed
         model.cuda()
     else:
         model.float()
     model.eval()
     print(model)
-if args["encoder"] is True:
-    # Create label encoder
-    if args["model"] is False:
-        head = encoder.ConvNet(input_nbr, target_nbr, args["momentum"])
-    else:
-        head = encoder.ConvNet(target_nbr, semantic_nbr, args["momentum"])
+if args["encoder"] is True or args["decoder"] is True:
     if USE_CUDA:  # convert to cuda if needed
         head.cuda()
     else:
         head.float()
     head.eval()
     print(head)
-elif args["decoder"] is True:
-    # Create label decoder
-    if args["model"] is False:
-        head = decoder.ConvNet(input_nbr, target_nbr, args["momentum"])
-    else:
-        head = decoder.ConvNet(semantic_nbr, target_nbr, args["momentum"])
-    if USE_CUDA:  # convert to cuda if needed
-        head.cuda()
-    else:
-        head.float()
-    head.eval()
-    print(head)
-else:
-    print("head is none\n")
 
 # Create visdom
 vis = visdom.Visdom()
 
 # init window
 if p_args.test is False:
-    if args["decoder"] is True:
-        """loss = KLD"""
+    if args["encoder"] is True or args["decoder"] is True:
+        """encoder or decoder"""
         win = vis.line(
             X=np.array([0]),
             Y=np.array([0]),
@@ -133,7 +144,7 @@ if p_args.test is False:
             )
         )
     else:
-        """loss = MSE"""
+        """model"""
         win = vis.line(
             X=np.array([0]),
             Y=np.array([0]),
@@ -182,6 +193,7 @@ def model_train(epoch, trainloader):
         loss = nn.MSELoss(size_average=True)
         l1_loss = nn.L1Loss(size_average=False)
 
+    # define total_loss
     total_loss = 0
 
     # define epoch_size
@@ -197,7 +209,8 @@ def model_train(epoch, trainloader):
     v_array = trainloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102,
+                   175, 99]
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
     if USE_CUDA:
@@ -254,7 +267,7 @@ def model_train(epoch, trainloader):
             print("epoch=%d, id=%d, loss=%f" %
                   (epoch, batch_id, l_.item()))
 
-        # visualize train condition
+        # visualize train conditions
         if batch_id % 30 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
             batch_loss = batch_loss / 30
@@ -267,7 +280,7 @@ def model_train(epoch, trainloader):
             model.eval()
             output = model(input)
             model_evaluate(output, target_map, v_array,
-                           epoch, epoch_size, batch_id, args["ZSL"])
+                           epoch, epoch_size, batch_id)
             model.train()
         else:
             batch_loss = batch_loss + l_.item()
@@ -276,13 +289,14 @@ def model_train(epoch, trainloader):
 
 
 def head_train(epoch, trainloader):
-    # set model to train mode
+    # set head to train mode
     if args["model"] is True:
         model.eval()
         head.train()
     else:
         head.train()
 
+    # define total_loss
     total_loss = 0
 
     # define epoch_size
@@ -291,61 +305,106 @@ def head_train(epoch, trainloader):
     # define batch_loss
     batch_loss = 0
 
-    # define lamda
+    # define lamda,gamma
     lamda = args["lamda"]
+    gamma = args["gamma"]
 
     # define annotations
     v_array = trainloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175,
+                   99]
         v_array = v_array[GT_list]
-    v_array = torch.from_numpy(v_array)
+        v_array = torch.from_numpy(v_array)
+    elif args["SSE"] is True:
+        v_array = torch.from_numpy(v_array)
+        v_array_copy = v_array.clone()
+        for i in range(args["batch_size"] - 1):
+            if i == 0:
+                v_array = torch.cat([v_array[None, :], v_array_copy[None, :]],
+                                    dim=0)
+            else:
+                v_array = torch.cat([v_array, v_array_copy[None, :]], dim=0)
+    else:
+        v_array = torch.from_numpy(v_array)
     if USE_CUDA:
         v_array = v_array.cuda()
 
+    # define output_vector target
+    output_target = torch.zeros((v_array.shape[0], v_array.shape[1]))
+    if USE_CUDA:
+        output_target = output_target.cuda()
+
     # define a loss
     if USE_CUDA:
-        if args["encoder"] is True:
-            """encoder"""
+        if args["encoder"] is True and args["SSE"] is False:
+            """encoder (SSE is False)"""
             loss = nn.MSELoss(size_average=True).cuda()
-        else:
-            """decoder"""
+        elif args["decoder"] is True and args["SSE"] is False:
+            """decoder (SSE is False)"""
             loss = nn.CrossEntropyLoss(size_average=True).cuda()
+        elif args["decoder"] is True and args["SSE"] is True:
+            """decoder (SSE is True)"""
+            loss = nn.MSELoss(size_average=True).cuda()
+            MSE_loss = nn.MSELoss(size_average=False).cuda()
+        else:
+            sys.exit("model is not defined")
         l1_loss = nn.L1Loss(size_average=False).cuda()
     else:
-        if args["encoder"] is True:
-            """encoder"""
+        if args["encoder"] is True and args["SSE"] is False:
+            """encoder (SSE is False)"""
             loss = nn.MSELoss(size_average=True)
-        else:
-            """decoder"""
+        elif args["decoder"] is True and args["SSE"] is False:
+            """decoder (SSE is False)"""
             loss = nn.CrossEntropyLoss(size_average=True)
+        elif args["decoder"] is True and args["SSE"] is True:
+            """decoder (SSE is True)"""
+            loss = nn.MSELoss(size_average=True)
+            MSE_loss = nn.MSELoss(size_average=False)
+        else:
+            sys.exit("model is not defined")
         l1_loss = nn.L1Loss(size_average=False)
 
     # iteration over the batches
     for batch_id, data in enumerate(trainloader):
         # make batch tensor and target tensor
-        input = data['input']
-        target = data['target']
-        if args["model"] is True and args["decoder"] is True:
-            mask1 = data['mask1']
-            mask2 = data['mask2']
+        if args["model"] is True and args["decoder"] is True and args["SSE"] is False:
+            input = data["input"]
+            target = data["target"]
+            mask1 = data["mask1"]
+            mask2 = data["mask2"]
+        elif args["decoder"] is True and args["SSE"] is False:
+            input = data["input"]
+            target = data["target"]
+        elif args["decoder"] is True and args["SSE"] is True:
+            input = data["input"]
+        elif args["encoder"] is True and args["SSE"] is False:
+            input = data["input"]
+            target = data["target"]
+        else:
+            sys.exit("model is not defined")
 
         if USE_CUDA:
-            input = input.cuda()
-            target = target.cuda()
-            if args["model"] is True and args["decoder"] is True:
+            if args["model"] is True and args["decoder"] is True and args["SSE"] is False:
+                input = input.cuda()
+                target = target.cuda()
                 mask1 = mask1.cuda()
                 mask2 = mask2.cuda()
+            elif args["decoder"] is True and args["SSE"] is False:
+                input = input.cuda()
+                target = target.cuda()
+            elif args["decoder"] is True and args["SSE"] is True:
+                input = input.cuda()
+            elif args["encoder"] is True and args["SSE"] is False:
+                input = input.cuda()
+                target = target.cuda()
 
         # initialize gradients
         optimizer.zero_grad()
 
         # predictions
-        if args["model"] is True and args["encoder"] is True:
-            output = head(target)
-            target = model(input)
-        elif args["model"] is True and args["decoder"] is True:
+        if args["model"] is True and args["decoder"] is True and args["SSE"] is False:
             semantic = model(input)
             output = head(semantic)
             # mask tensor
@@ -355,18 +414,46 @@ def head_train(epoch, trainloader):
             output = head(input)
 
         # calculate loss
-        l_ = loss(output, target)
-        if lamda != 0:
-            reg_loss = 0
-            for param in head.parameters():
-                if USE_CUDA:
-                    param_target = Variable(torch.zeros(param.size())).cuda()
-                else:
-                    param_target = Variable(torch.zeros(param.size()))
-                reg_loss += l1_loss(param, param_target)
+        if args["SSE"] is False:
+            """SSE is False"""
+            l_ = loss(output, target)
+            if lamda != 0:
+                reg_loss = 0
+                for param in head.parameters():
+                    if USE_CUDA:
+                        param_target = torch.zeros(param.size()).cuda()
+                    else:
+                        param_target = torch.zeros(param.size())
+                    reg_loss += l1_loss(param, param_target)
 
-            reg_loss = lamda * reg_loss
-            l_ += l_ + reg_loss
+                reg_loss = lamda * reg_loss
+                l_ = l_ + reg_loss
+        else:
+            """SSE is True"""
+            # maxmize similarity loss
+            l_1 = 0
+            for i in range(v_array.shape[0]):
+                v_array2 = v_array[:, i, :]
+                output2 = output[:, i, 0, 0][:, None]
+                target = v_array2 * output2
+                l_1 += loss(input[:, :, 0, 0], target.detach())
+            # minimize vector norm loss
+            l_2 = MSE_loss(output[:, :, 0, 0], output_target)
+            l_2 = gamma * l_2
+            # minimize parameter norm loss
+            if lamda != 0:
+                reg_loss = 0
+                for param in head.parameters():
+                    if USE_CUDA:
+                        param_target = torch.zeros(param.size()).cuda()
+                    else:
+                        param_target = torch.zeros(param.size())
+                    reg_loss += l1_loss(param, param_target)
+
+                reg_loss = lamda * reg_loss
+                l_3 = reg_loss
+
+            l_ = l_1 + l_2 + l_3
 
         total_loss += l_.item()
         # backward loss
@@ -382,10 +469,10 @@ def head_train(epoch, trainloader):
             print("epoch=%d, id=%d, loss=%f" %
                   (epoch, batch_id, l_.item()))
 
-        # visualize train condition
-        if batch_id % 2 == 0 and batch_id != 0:
+        # visualize train conditions
+        if batch_id % 30 == 0 and batch_id != 0:
             batch_loss = batch_loss + l_.item()
-            batch_loss = batch_loss / 5
+            batch_loss = batch_loss / 30
             # display visdom board
             phase = epoch + batch_id / epoch_size
             visualize(phase, batch_loss, win)
@@ -399,8 +486,7 @@ def head_train(epoch, trainloader):
                     output = head(semantic)
                 else:
                     output = head(input)
-                head_evaluate(output, target, epoch,
-                              epoch_size, batch_id, args["ZSL"])
+                head_evaluate(output, target, epoch, epoch_size, batch_id)
                 head.train()
         else:
             batch_loss = batch_loss + l_.item()
@@ -416,7 +502,8 @@ def model_test(testloader):
     v_array = testloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102,
+                   175, 99]
         GT_num = len(GT_list)
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
@@ -430,7 +517,7 @@ def model_test(testloader):
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
-        input = Variable(data['input'])
+        input = data['input']
 
         if USE_CUDA:
             input = input.cuda()
@@ -441,12 +528,14 @@ def model_test(testloader):
         # output segmentation_img
         filename = os.path.basename(
             testloader.dataset.get_filename(batch_id)[0])
+        filename = filename.split(".")[0]
+        filename = filename + ".png"
         print(filename)
         single_output = output[0, :, :, :]
         single_output = single_output.transpose(0, 1).transpose(1, 2)
         result = min_euclidean(single_output, v_array).cpu().numpy()
-        img1 = result.copy()
         if args["ZSL"] is True:
+            img1 = result.copy()
             for i in range(GT_num):
                 result[img1 == i] = GT_list[i]
         result = np.uint8(result)
@@ -456,8 +545,8 @@ def model_test(testloader):
 
 
 def head_test(testloader):
-    """decoder only"""
-    # set model to eval mode
+    """decoder only (SSE is False)"""
+    # set head to eval mode
     if args["model"] is True:
         model.eval()
         head.eval()
@@ -468,7 +557,8 @@ def head_test(testloader):
     v_array = testloader.dataset.v_array
     if args["ZSL"] is True:
         GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                   149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102,
+                   175, 99]
         GT_num = len(GT_list)
         v_array = v_array[GT_list]
     v_array = torch.from_numpy(v_array)
@@ -482,37 +572,51 @@ def head_test(testloader):
     # iteration over the batches
     for batch_id, data in enumerate(testloader):
         # make batch tensor and target tensor
-        input = Variable(data['input'])
+        input = data['input']
 
         if USE_CUDA:
             input = input.cuda()
 
-        if args["model"] is True:
-            """model and decoder"""
+        if args["model"] is True and args["decoder"] is True and args["SSE"] is False:
+            """model and decoder (SSE is False)"""
             # predictions
             semantic = model(input)
             output = head(semantic)
-            # output segmentation_img
+            # make result
             filename = os.path.basename(
                 testloader.dataset.get_filename(batch_id)[0])
+            filename = filename.split(".")[0]
+            filename = filename + ".png"
             print(filename)
-        else:
+            single_output = output[0, :, :, :]
+            if args["ZSL"] is True:
+                for i in range(GT_num):
+                    if i == 0:
+                        result = single_output[GT_list[i], :, :][None, :, :]
+                    else:
+                        result = torch.cat(
+                            [result, single_output[GT_list[i], :, :]
+                             [None, :, :]], dim=0)
+        elif args["decoder"] is True and args["SSE"] is False:
             """decoder"""
             # predictions
             output = head(input)
-            # output segmentation_img
+            # make result
             if batch_id < 10:
-                filename = '00' + str(batch_id) + '.jpg'
+                filename = '00' + str(batch_id) + '.png'
             elif batch_id < 100:
-                filename = '0' + str(batch_id) + '.jpg'
+                filename = '0' + str(batch_id) + '.png'
             else:
-                filename = str(batch_id) + '.jpg'
+                filename = str(batch_id) + '.png'
             print(filename)
+            result = output[0, :, :, :]
+        else:
+            sys.exit("model is not defined")
 
-        result = output[0, :, :, :]
+        # output segmentation_img
         result = result.max(0)[1].cpu().numpy()
-        img1 = result.copy()
         if args["ZSL"] is True:
+            img1 = result.copy()
             for i in range(GT_num):
                 result[img1 == i] = GT_list[i]
         result = np.uint8(result)
@@ -520,7 +624,7 @@ def head_test(testloader):
             os.path.join(args["output_dir"], filename))
 
 
-def model_evaluate(output, target_map, v_array, epoch, epoch_size, batch_id, ZSL):
+def model_evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
     data_num = 0
     correct_num = 0
     """
@@ -539,7 +643,7 @@ def model_evaluate(output, target_map, v_array, epoch, epoch_size, batch_id, ZSL
         single_output = single_output.transpose(0, 1).transpose(1, 2)
         result = min_euclidean(single_output, v_array).cpu().numpy()
         single_data_num, single_correct_num = evaluate_(
-            target, result, GT_root, GT_list, GT_num, ZSL)
+            target, result, GT_root, GT_list, GT_num)
         data_num += single_data_num
         correct_num += single_correct_num
         """
@@ -563,7 +667,7 @@ def model_evaluate(output, target_map, v_array, epoch, epoch_size, batch_id, ZSL
         print("train_acc = %f" % (correct_num / data_num))
 
 
-def head_evaluate(output, target_map, epoch, epoch_size, batch_id, ZSL):
+def head_evaluate(output, target_map, epoch, epoch_size, batch_id):
     """decoder only"""
     data_num = 0
     correct_num = 0
@@ -572,28 +676,41 @@ def head_evaluate(output, target_map, epoch, epoch_size, batch_id, ZSL):
     GT_root = np.ones(target_map[0, :, :].shape, dtype='int32')
     GT_num = len(GT_list)
     print("evaluating ...")
-    if args["model"] is True:
+    if args["model"] is True and args["decoder"] is True and args["SSE"] is False:
+        """model and decoder (SSE is False)"""
         for id in range(output.size(0)):
             single_output = output[id, :, :, :]
+            if args["ZSL"] is True:
+                for i in range(GT_num):
+                    if i == 0:
+                        single_output2 = single_output[GT_list[i],
+                                                       :, :][None, :, :]
+                    else:
+                        single_output2 = torch.cat(
+                            [single_output2, single_output[GT_list[i], :, :]
+                             [None, :, :]], dim=0)
+                single_output = single_output2
             target = target_map[id, :, :].cpu().numpy()
             result = single_output.max(0)[1].cpu().numpy()
             single_data_num, single_correct_num = evaluate_(
-                target, result, GT_root, GT_list, GT_num, ZSL)
+                target, result, GT_root, GT_list, GT_num)
             data_num += single_data_num
             correct_num += single_correct_num
-    else:
+    elif args["decoder"] is True and args["SSE"] is False:
+        """decoder"""
         for id in range(output.size(0)):
             single_output = output[id, :, :, :]
             target = target_map[id, :, :].cpu().numpy()
             result = single_output.max(0)[1].cpu().numpy()
             # calculate normal accuracy
             img = np.ones(target.shape)
-            img[target >= 182] = 0
             data_num += np.sum(img)
             img = result - target
             img2 = np.zeros(target.shape)
             img2[img == 0] = 1
             correct_num += np.sum(img2)
+    else:
+        sys.exit("model is not defined")
 
     phase = epoch + batch_id / epoch_size
     if data_num == 0:
@@ -605,13 +722,13 @@ def head_evaluate(output, target_map, epoch, epoch_size, batch_id, ZSL):
         print("train_acc = %f" % (correct_num / data_num))
 
 
-def evaluate_(target_img, predict_img, GT_root, GT_list, GT_num, ZSL):
+def evaluate_(target_img, predict_img, GT_root, GT_list, GT_num):
     GT_pixel_num = 0
     predict_TP_num = 0
     for i in range(GT_num):
         GT = GT_root * GT_list[i]
         img1 = target_img - GT
-        if ZSL is True:
+        if args["ZSL"] is True:
             img2 = predict_img - i
         else:
             img2 = predict_img - GT
@@ -671,23 +788,7 @@ def main():
         []
     )
 
-    # load dataset
-    trainset = datasets.ImageFolderDenseFileLists(
-        input_root=args["input_root"], target_root=args["target_root"],
-        map_root=args["map_root"], filenames=args["filenames"],
-        semantic_filename=args["semantic_filename"], training=True,
-        batch_size=args["batch_size"], config=args, transform=train_transform)
-    trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args["batch_size"], shuffle=True,
-        num_workers=args["batch_size"])
-    testset = datasets.ImageFolderDenseFileLists(
-        input_root='./data/test/input', target_root=None,
-        map_root=None, filenames='./data/test/names.txt',
-        semantic_filename=args["semantic_filename"], training=False,
-        batch_size=1, config=args, transform=test_transform)
-    testloader = torch.utils.data.DataLoader(
-        testset, batch_size=1, shuffle=False, num_workers=1)
-
+    # initialize model
     if args["model"] is True:
         model.initialized_with_pretrained_weights()
 
@@ -698,6 +799,29 @@ def main():
         if args["encoder"] is True or args["decoder"] is True:
             head.load_from_filename(args["head_load_pth"])
 
+    # load dataset
+    if args["SSE"] is True:
+        SSE_decoder = head.load_form_filename(args["head_load_pth"])
+    else:
+        SSE_decoder = None
+    trainset = datasets.ImageFolderDenseFileLists(
+        input_root=args["input_root"], target_root=args["target_root"],
+        map_root=args["map_root"], filenames=args["filenames"],
+        semantic_filename=args["semantic_filename"], training=True,
+        model=SSE_decoder, config=args, transform=train_transform,
+        USE_CUDA=USE_CUDA)
+    trainloader = torch.utils.data.DataLoader(
+        trainset, batch_size=args["batch_size"], shuffle=True,
+        num_workers=args["batch_size"])
+    testset = datasets.ImageFolderDenseFileLists(
+        input_root='./data/test/input', target_root=None,
+        map_root=None, filenames='./data/test/names.txt',
+        semantic_filename=args["semantic_filename"], training=False,
+        model=SSE_decoder, config=args, transform=test_transform,
+        USE_CUDA=USE_CUDA)
+    testloader = torch.utils.data.DataLoader(
+        testset, batch_size=1, shuffle=False, num_workers=1)
+
     # train and test
     for epoch in range(0, args["epochs"]):
         print()
@@ -705,7 +829,10 @@ def main():
 
         if p_args.test is False:
             # training
-            if args["encoder"] is True or args["decoder"] is True:
+            if args["model"] is True and args["decoder"] is True and args["SSE"] is True:
+                loss = model_train(epoch, trainloader)
+                print("model_loss:%f" % (loss))
+            elif args["encoder"] is True or args["decoder"] is True:
                 loss = head_train(epoch, trainloader)
                 print("head_loss:%f" % (loss))
             else:
@@ -721,15 +848,23 @@ def main():
             if not os.path.isdir(args["project_dir"]):
                 os.makedirs(args["project_dir"])
             # save checkpoint
-            if args["encoder"] is True or args["decoder"] is True:
+            if args["model"] is True and args["decoder"] is True and args["SSE"] is True:
+                torch.save(model.state_dict(),
+                           args["project_dir"] + "/checkpoint_" + str(epoch) +
+                           ".pth")
+            elif args["encoder"] is True or args["decoder"] is True:
                 torch.save(head.state_dict(),
-                           args["project_dir"] + "/checkpoint_" + str(epoch) + ".pth")
+                           args["project_dir"] + "/checkpoint_" + str(epoch) +
+                           ".pth")
             else:
                 torch.save(model.state_dict(),
-                           args["project_dir"] + "/checkpoint_" + str(epoch) + ".pth")
+                           args["project_dir"] + "/checkpoint_" + str(epoch) +
+                           ".pth")
         elif p_args.test is True and p_args.load is True:
             # test
-            if args["encoder"] is True or args["decoder"] is True:
+            if args["model"] is True and args["decoder"] is True and args["SSE"] is True:
+                model_test(testloader)
+            elif args["encoder"] is True or args["decoder"] is True:
                 head_test(testloader)
             else:
                 model_test(testloader)
@@ -739,7 +874,10 @@ def main():
             break
     # save model
     if p_args.test is False:
-        if args["encoder"] is True or args["decoder"] is True:
+        if args["model"] is True and args["decoder"] is True and args["SSE"] is True:
+            torch.save(model.state_dict(), os.path.join(
+                args["project_dir"], args["save_pth"]))
+        elif args["encoder"] is True or args["decoder"] is True:
             torch.save(head.state_dict(), os.path.join(
                 args["project_dir"], args["save_pth"]))
         else:

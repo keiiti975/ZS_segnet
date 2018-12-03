@@ -26,19 +26,19 @@ def make_dataset(input_dir, target_dir, map_dir, filenames, training):
     for filename in tqdm(lines):
         filename = filename.split("\n")[0]
         if training is False:
-            with Image.open(os.path.join(input_dir, filename))as image:
+            with Image.open(os.path.join(input_dir, filename + ".jpg"))as image:
                 if image.mode == "L":
                     continue
         item = []
-        item.append(os.path.join(input_dir, filename))
+        item.append(os.path.join(input_dir, filename + ".jpg"))
 
         if target_dir is not None:
-            item.append(os.path.join(target_dir, filename))
+            item.append(os.path.join(target_dir, filename + ".png"))
         else:
             item.append(None)
 
         if map_dir is not None:
-            item.append(os.path.join(map_dir, filename))
+            item.append(os.path.join(map_dir, filename + ".png"))
         else:
             item.append(None)
 
@@ -47,7 +47,7 @@ def make_dataset(input_dir, target_dir, map_dir, filenames, training):
     return images
 
 
-def make_vectors(filename, config):
+def make_vectors(filename, config, model, USE_CUDA):
     """Create semantic_vector array"""
     vector_array = []
 
@@ -65,39 +65,68 @@ def make_vectors(filename, config):
 
     vector_array = np.array(vector_array, 'float32')
 
-    if config["cos_similarity"] is True:
-        # cos_similarity
-        similarity = np.zeros(
-            [vector_array.shape[0], vector_array.shape[0]], 'float32')
-        for i in range(vector_array.shape[0]):
-            for j in range(vector_array.shape[0]):
-                similarity[i, j] = cos_sim(
-                    vector_array[i, :], vector_array[j, :])
-        vector_array = similarity
+    if config["SSE"] is False:
+        """applying semantic_vector transforms (SSE is False)"""
+        if config["cos_similarity"] is True:
+            # cos_similarity
+            similarity = np.zeros(
+                [vector_array.shape[0], vector_array.shape[0]], 'float32')
+            for i in range(vector_array.shape[0]):
+                for j in range(vector_array.shape[0]):
+                    similarity[i, j] = cos_sim(
+                        vector_array[i, :], vector_array[j, :])
+            vector_array = similarity
 
-    if config["jaccard_similarity"] is True:
-        # jaccard_similarity
-        similarity = np.zeros(
-            [vector_array.shape[0], vector_array.shape[0]], 'float32')
-        for i in range(vector_array.shape[0]):
-            for j in range(vector_array.shape[0]):
-                max = 0
-                min = 0
-                for k in range(vector_array.shape[1]):
-                    if vector_array[i, k] > vector_array[j, k]:
-                        max += vector_array[i, k]
-                        min += vector_array[j, k]
-                    else:
-                        max += vector_array[j, k]
-                        min += vector_array[i, k]
-                    similarity[i, j] = min / max
-        vector_array = similarity
+        if config["jaccard_similarity"] is True:
+            # jaccard_similarity
+            similarity = np.zeros(
+                [vector_array.shape[0], vector_array.shape[0]], 'float32')
+            for i in range(vector_array.shape[0]):
+                for j in range(vector_array.shape[0]):
+                    max = 0
+                    min = 0
+                    for k in range(vector_array.shape[1]):
+                        if vector_array[i, k] > vector_array[j, k]:
+                            max += vector_array[i, k]
+                            min += vector_array[j, k]
+                        else:
+                            max += vector_array[j, k]
+                            min += vector_array[i, k]
+                        similarity[i, j] = min / max
+            vector_array = similarity
 
-    if config["PCA"] is True:
-        # PCA
-        pca = PCA(n_components=config["n_components"])
-        pca.fit(vector_array)
-        vector_array = pca.fit_transform(vector_array)
+        if config["PCA"] is True:
+            # PCA
+            pca = PCA(n_components=config["n_components"])
+            pca.fit(vector_array)
+            vector_array = pca.fit_transform(vector_array)
+    else:
+        """create semantic similarity embedding (SSE is True)"""
+        if config["model"] is True and config["SSE"] is True:
+            model.eval()
+            for i in range(vector_array.shape[0]):
+                input = torch.from_numpy(vector_array[i, :])
+                input = input[None, :, None, None]
+                if USE_CUDA:
+                    input = input.cuda()
+                output = model(input)
+                output = output[0, :, 0, 0]
+                if i == 0:
+                    output2 = output[None, :]
+                else:
+                    output2 = torch.cat([output2, output[None, :]], dim=0)
+            if USE_CUDA:
+                vector_array = output2.detach().cpu().numpy()
+            else:
+                vector_array = output2.detach().numpy()
+        elif config["decoder"] is True and config["SSE"] is True:
+            # remove unlabeled label
+            remove_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
+                           149, 105, 123, 112, 127, 152, 167, 109, 179, 116,
+                           102, 175, 99, 182]
+            seen_index = [i for i in range(vector_array.shape[0])
+                          if i not in remove_list]
+            vector_array = vector_array[seen_index]
 
     return vector_array
 
@@ -112,7 +141,7 @@ class ImageFolderDenseFileLists(data.Dataset):
     def __init__(self, input_root,
                  target_root, map_root,
                  filenames, semantic_filename,
-                 training, batch_size, config, transform):
+                 training, model, config, transform, USE_CUDA):
         """Init function."""
         if config["model"] is True:
             # get the lists of images
@@ -124,7 +153,7 @@ class ImageFolderDenseFileLists(data.Dataset):
                     "Found 0 images in subfolders of: " + input_root + "\n"))
 
         # get semantic_vector array
-        v_array = make_vectors(semantic_filename, config)
+        v_array = make_vectors(semantic_filename, config, model, USE_CUDA)
         v_array = torch.from_numpy(v_array)
         v_array = F.normalize(v_array)
         v_array = v_array.numpy()
@@ -133,13 +162,13 @@ class ImageFolderDenseFileLists(data.Dataset):
         self.target_root = target_root
         self.map_root = map_root
         self.training = training
-        self.batch_size = batch_size
         self.transform = transform
         self.v_array = v_array
         self.config = config
         if config["model"] is False:
             self.GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
-                            149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+                            149, 105, 123, 112, 127, 152, 167, 109, 179, 116,
+                            102, 175, 99]
 
     def __getitem__(self, index):
         """Get item."""
@@ -171,7 +200,7 @@ class ImageFolderDenseFileLists(data.Dataset):
                     """model and decoder"""
                     # get mask
                     mask1, mask2 = self.getMask(target_img)
-                    target_img = torch.from_numpy(target_img)
+                    target_img = torch.from_numpy(target_img).long()
                     # map_img to tensor
                     target_map = np.asarray(map_img)
                     data = {'input': input_img, 'target': target_img,
@@ -188,8 +217,6 @@ class ImageFolderDenseFileLists(data.Dataset):
                     target_map = np.asarray(map_img)
                     data = {'input': input_img, 'target': target_img,
                             'mask': mask, 'map': target_map}
-
-                return data
             else:
                 """false model"""
                 if self.config["encoder"] is True:
@@ -211,23 +238,30 @@ class ImageFolderDenseFileLists(data.Dataset):
                     data = {'input': input_map, 'target': target_vec}
                 else:
                     """decoder"""
-                    if self.config["ZSL"] is True:
-                        GT_index = self.GT_list[index]
-                        input_map = np.full((256, 256), GT_index)
-                        index_map = np.full((256, 256), index)
-                        target_map = index_map.copy()
+                    if self.config["SSE"] is False:
+                        """decoder (SSE is False)"""
+                        if self.config["ZSL"] is True:
+                            GT_index = self.GT_list[index]
+                            input_map = np.full((256, 256), GT_index)
+                            index_map = np.full((256, 256), index)
+                            target_map = index_map.copy()
+                        else:
+                            input_map = np.full((256, 256), index)
+                            target_map = input_map.copy()
+                        input_vec, mask = self.index2vec(input_map)
+                        # input_vec to tensor
+                        input_vec = torch.from_numpy(input_vec)
+                        # target_map to tensor
+                        target_map = torch.from_numpy(target_map)
+
+                        data = {'input': input_vec, 'target': target_map}
                     else:
-                        input_map = np.full((256, 256), index)
-                        target_map = input_map.copy()
-                    input_vec, mask = self.index2vec(input_map)
-                    # input_vec to tensor
-                    input_vec = torch.from_numpy(input_vec)
-                    # target_map to tensor
-                    target_map = torch.from_numpy(target_map)
+                        """decoder (SSE is True)"""
+                        input_vec = self.v_array[index]
+                        # input_vec to tensor
+                        input_vec = torch.from_numpy(input_vec)[:, None, None]
 
-                    data = {'input': input_vec, 'target': target_map}
-
-                return data
+                        data = {'input': input_vec}
         else:
             """test"""
             if self.config["model"] is True:
@@ -243,20 +277,17 @@ class ImageFolderDenseFileLists(data.Dataset):
                 input_img = transform(input_img)
 
                 data = {'input': input_img}
+            elif self.config["decoder"] is True and self.config["SSE"] is False:
+                """decoder(test)"""
+                if self.config["ZSL"] is True:
+                    index = self.GT_list[index]
+                input_map = np.full((256, 256), index)
+                input_vec, mask = self.index2vec(input_map)
+                # input_vec to tensor
+                input_vec = torch.from_numpy(input_vec)
+                data = {'input': input_vec}
 
-                return data
-            else:
-                if self.config["decoder"] is True:
-                    """decoder(test)"""
-                    if self.config["ZSL"] is True:
-                        index = self.GT_list[index]
-                    input_map = np.full((256, 256), index)
-                    input_vec, mask = self.index2vec(input_map)
-                    # input_vec to tensor
-                    input_vec = torch.from_numpy(input_vec)
-                    data = {'input': input_vec}
-
-                return data
+        return data
 
     def __len__(self):
         """Length."""
@@ -322,5 +353,6 @@ class ImageFolderDenseFileLists(data.Dataset):
         """make mask"""
         mask = np.ones(img.shape, dtype='int32')
         mask[img > 181] = 0
-        mask = mask.astype('float32')
-        return mask, mask[None, :, :]
+        mask1 = mask.astype('int64')
+        mask2 = mask[None, :, :].astype('float32')
+        return mask1, mask2

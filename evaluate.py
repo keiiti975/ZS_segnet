@@ -25,8 +25,8 @@ def make_dataset(target_dir, predict_dir, filenames):
     for filename in tqdm(lines):
         filename = filename.split("\n")[0]
         item = []
-        item.append(os.path.join(target_dir, filename))
-        item.append(os.path.join(predict_dir, filename))
+        item.append(os.path.join(target_dir, filename+".png"))
+        item.append(os.path.join(predict_dir, filename+".png"))
         images.append(item)
 
     return images

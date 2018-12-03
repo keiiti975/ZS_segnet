@@ -11,10 +11,11 @@
     "momentum":0.1,
     "seed":1,
     "lamda":0,
+    "gamma":1,
     "input_root":"./data/train/input",
-    "target_root":"./data/train/zs_target2",
+    "target_root":"./data/train/zs_target",
     "map_root":"./data/train/target",
-    "filenames":"./data/train/names2.txt",
+    "filenames":"./data/train/zs_names.txt",
     "semantic_filename":"./v_class/class1.txt",
     "project_dir":"./model/MSE_batch12_jacPCA",
     "model_load_pth":"./model/MSE_batch12_jacPCA/segnet.pth",
@@ -25,5 +26,6 @@
     "PCA":"true",
     "cos_similarity":"false",
     "jaccard_similarity":"true",
-    "ZSL":"true"
+    "ZSL":"true",
+    "SSE":"false"
 }
