@@ -115,6 +115,7 @@ if args["model"] is True:
         model.cuda()
     else:
         model.float()
+        model.cpu()
     model.eval()
     print(model)
 if args["encoder"] is True or args["decoder"] is True:
@@ -122,6 +123,7 @@ if args["encoder"] is True or args["decoder"] is True:
         head.cuda()
     else:
         head.float()
+        head.cpu()
     head.eval()
     print(head)
 
@@ -441,6 +443,7 @@ def head_train(epoch, trainloader):
             l_2 = MSE_loss(output[:, :, 0, 0], output_target)
             l_2 = gamma * l_2
             # minimize parameter norm loss
+            l_3 = 0
             if lamda != 0:
                 reg_loss = 0
                 for param in head.parameters():
@@ -478,7 +481,7 @@ def head_train(epoch, trainloader):
             visualize(phase, batch_loss, win)
             batch_loss = 0
             # evaluate
-            if args["decoder"] is True:
+            if args["decoder"] is True and args["SSE"] is False:
                 """decoder only"""
                 head.eval()
                 if args["model"] is True:
@@ -668,7 +671,7 @@ def model_evaluate(output, target_map, v_array, epoch, epoch_size, batch_id):
 
 
 def head_evaluate(output, target_map, epoch, epoch_size, batch_id):
-    """decoder only"""
+    """decoder only (SSE is False)"""
     data_num = 0
     correct_num = 0
     GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
@@ -791,6 +794,8 @@ def main():
     # initialize model
     if args["model"] is True:
         model.initialized_with_pretrained_weights()
+        if args["SSE"] is True:
+            head.load_from_filename(args["head_load_pth"])
 
     # load model
     if p_args.load is True:
@@ -800,15 +805,11 @@ def main():
             head.load_from_filename(args["head_load_pth"])
 
     # load dataset
-    if args["SSE"] is True:
-        SSE_decoder = head.load_form_filename(args["head_load_pth"])
-    else:
-        SSE_decoder = None
     trainset = datasets.ImageFolderDenseFileLists(
         input_root=args["input_root"], target_root=args["target_root"],
         map_root=args["map_root"], filenames=args["filenames"],
         semantic_filename=args["semantic_filename"], training=True,
-        model=SSE_decoder, config=args, transform=train_transform,
+        model=head, config=args, transform=train_transform,
         USE_CUDA=USE_CUDA)
     trainloader = torch.utils.data.DataLoader(
         trainset, batch_size=args["batch_size"], shuffle=True,
@@ -817,7 +818,7 @@ def main():
         input_root='./data/test/input', target_root=None,
         map_root=None, filenames='./data/test/names.txt',
         semantic_filename=args["semantic_filename"], training=False,
-        model=SSE_decoder, config=args, transform=test_transform,
+        model=head, config=args, transform=test_transform,
         USE_CUDA=USE_CUDA)
     testloader = torch.utils.data.DataLoader(
         testset, batch_size=1, shuffle=False, num_workers=1)

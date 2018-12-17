@@ -1,9 +1,0 @@
-行った実験
-MSE_batch12
-decoder_batch2
-
-実験中
-MSE_decoder_batch12
-
-行いたい実験
-

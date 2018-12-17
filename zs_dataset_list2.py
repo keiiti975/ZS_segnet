@@ -8,9 +8,7 @@ from sklearn.decomposition import PCA
 from PIL import Image
 import os
 import os.path
-from tqdm import tqdm
-
-max_size = 640  # unused parameter (max size of image)
+import sys
 
 tr_map_te = np.asarray([
     26,
@@ -288,12 +286,6 @@ def make_vectors(filename, config, model, USE_CUDA):
             pca = PCA(n_components=config["n_components"])
             pca.fit(vector_array)
             vector_array = pca.fit_transform(vector_array)
-
-        if config["decoder"] is True and config["model"] is False:
-            seen_index = [i for i in range(
-                vector_array.shape[0]) if i not in GT_list]
-            seen_index = np.array(seen_index)
-            vector_array = vector_array[seen_index]
     else:
         """create semantic similarity embedding (SSE is True)"""
         if config["model"] is True and config["SSE"] is True:
@@ -351,6 +343,17 @@ class ImageFolderDenseFileLists(data.Dataset):
         v_array = F.normalize(v_array)
         v_array = v_array.numpy()
 
+        if config["model"] is False and config["decoder"] is True and \
+                config["ZSL"] is True:
+            # apply seen_index
+            seen_index = [i for i in range(
+                v_array.shape[0]) if i not in GT_list]
+            seen_index = np.array(seen_index)
+            seen_tr_map_te = tr_map_te[seen_index]
+            v_array = v_array[seen_index]
+            self.seen_index = seen_index
+            self.seen_tr_map_te = seen_tr_map_te
+
         self.input_root = input_root
         self.target_root = target_root
         self.map_root = map_root
@@ -364,12 +367,53 @@ class ImageFolderDenseFileLists(data.Dataset):
 
         if self.training is True:
             """train"""
-            if self.config["model"] is True:
-                """true model"""
+            if self.config["model"] is True and self.config["decoder"] is True:
+                """model and decoder"""
+                if self.config["ZSL"] is True and self.config["SSE"] is False:
+                    """ZSL"""
+                    # load path
+                    input_paths = self.imgs[index][0]
+                    target_paths = self.imgs[index][1]
+                    map_paths = self.imgs[index][2]
+
+                    # load image
+                    input_img = self.loader(input_paths)
+                    target_img = self.loader(target_paths)
+                    map_img = self.loader(map_paths)
+
+                    # apply transformation
+                    input_img = self.transform(input_img)
+                    target_img = self.transform(target_img)
+                    map_img = self.transform(map_img)
+
+                    # input_img to tensor
+                    transform = transforms.Compose([transforms.ToTensor()])
+                    input_img = transform(input_img)
+
+                    # target_img to tensor
+                    target_img = np.asarray(target_img)
+                    msk = np.isin(target_img, GT_list)
+                    copy_target_img = target_img.copy()
+                    copy_target_img[target_img > 181] = 182
+                    target_img = tr_map_te[copy_target_img]
+                    target_img[msk] = 26
+                    target_img = torch.from_numpy(target_img).long()
+
+                    # map_img to tensor
+                    target_map = np.asarray(map_img)
+
+                    data = {'input': input_img, 'target': target_img,
+                            'map': target_map}
+                else:
+                    sys.exit("model is not defined")
+            elif self.config["model"] is True:
+                """model"""
+                # load path
                 input_paths = self.imgs[index][0]
                 target_paths = self.imgs[index][1]
                 map_paths = self.imgs[index][2]
 
+                # load image
                 input_img = self.loader(input_paths)
                 target_img = self.loader(target_paths)
                 map_img = self.loader(map_paths)
@@ -385,76 +429,69 @@ class ImageFolderDenseFileLists(data.Dataset):
 
                 # target_img to tensor
                 target_img = np.asarray(target_img)
-                if self.config["decoder"] is True and self.config["SSE"] is False:
-                    """model and decoder"""
-                    # get mask
-                    mask1, mask2 = self.getMask(target_img)
-                    target_img = torch.from_numpy(target_img).long()
-                    # map_img to tensor
-                    target_map = np.asarray(map_img)
-                    data = {'input': input_img, 'target': target_img,
-                            'mask1': mask1, 'mask2': mask2, 'map': target_map}
-                elif self.config["encoder"] is True:
-                    """model and encoder"""
-                    target_img = torch.from_numpy(target_img[None, :, :])
-                    data = {'input': input_img, 'target': target_img}
+                target_img, mask = self.index2vec(target_img)
+                target_img = torch.from_numpy(target_img)
+
+                # map_img to tensor
+                target_map = np.asarray(map_img)
+
+                data = {'input': input_img, 'target': target_img,
+                        'mask': mask, 'map': target_map}
+            elif self.config["decoder"] is True:
+                """decoder"""
+                if self.config["ZSL"] is True:
+                    """ZSL"""
+                    input_map = np.full((256, 256), index)
+                    target_map = input_map.copy()
+                    target_map = self.seen_tr_map_te[target_map]
+                    input_vec, mask = self.index2vec(input_map)
+                    # input_vec to tensor
+                    input_vec = torch.from_numpy(input_vec)
+                    # target_map to tensor
+                    target_map = torch.from_numpy(target_map)
+
+                    data = {'input': input_vec, 'target': target_map}
                 else:
-                    """model"""
-                    target_img, mask = self.index2vec(target_img)
-                    target_img = torch.from_numpy(target_img)
-                    # map_img to tensor
-                    target_map = np.asarray(map_img)
-                    data = {'input': input_img, 'target': target_img,
-                            'mask': mask, 'map': target_map}
+                    """normal"""
+                    input_map = np.full((256, 256), index)
+                    target_map = input_map.copy()
+                    input_vec, mask = self.index2vec(input_map)
+                    # input_vec to tensor
+                    input_vec = torch.from_numpy(input_vec)
+                    # target_map to tensor
+                    target_map = torch.from_numpy(target_map)
+
+                    data = {'input': input_vec, 'target': target_map}
             else:
-                """false model"""
-                if self.config["encoder"] is True:
-                    """encoder"""
-                    if self.config["ZSL"] is True:
-                        GT_index = self.GT_list[index]
-                        input_map = np.full((256, 256), index)
-                        index_map = np.full((256, 256), GT_index)
-                        target_vec, mask = self.index2vec(index_map)
-                    else:
-                        input_map = np.full((256, 256), index)
-                        target_vec, mask = self.index2vec(input_map)
-                    # input_map to tensor
-                    input_map = torch.from_numpy(input_map[None, :, :])
-                    input_map = input_map.float()
-                    # target_vec to tensor
-                    target_vec = torch.from_numpy(target_vec)
-
-                    data = {'input': input_map, 'target': target_vec}
-                else:
-                    """decoder"""
-                    if self.config["SSE"] is False:
-                        """decoder (SSE is False)"""
-                        if self.config["ZSL"] is True:
-                            input_map = np.full((256, 256), index)
-                            target_map = input_map.copy()
-                            target_map = tr_map_te[target_map]
-                        else:
-                            input_map = np.full((256, 256), index)
-                            target_map = input_map.copy()
-                        input_vec, mask = self.index2vec(input_map)
-                        # input_vec to tensor
-                        input_vec = torch.from_numpy(input_vec)
-                        # target_map to tensor
-                        target_map = torch.from_numpy(target_map)
-
-                        data = {'input': input_vec, 'target': target_map}
-                    else:
-                        """decoder (SSE is True)"""
-                        input_vec = self.v_array[index]
-                        # input_vec to tensor
-                        input_vec = torch.from_numpy(input_vec)[:, None, None]
-
-                        data = {'input': input_vec}
+                sys.exit("model is not defined")
         else:
             """test"""
-            if self.config["model"] is True:
-                """model(test)"""
+            if self.config["model"] is True and self.config["decoder"] is True:
+                """model and decoder"""
+                if self.config["ZSL"] is True and self.config["SSE"] is False:
+                    """ZSL"""
+                    # load path
+                    input_paths = self.imgs[index][0]
+
+                    # load image
+                    input_img = self.loader(input_paths)
+
+                    # apply transformation
+                    input_img = self.transform(input_img)
+
+                    # input_img to tensor
+                    transform = transforms.Compose([transforms.ToTensor()])
+                    input_img = transform(input_img)
+
+                    data = {'input': input_img}
+                else:
+                    sys.exit("model is not defined")
+            elif self.config["model"] is True:
+                """model"""
+                # load path
                 input_paths = self.imgs[index][0]
+
+                # load image
                 input_img = self.loader(input_paths)
 
                 # apply transformation
@@ -465,15 +502,33 @@ class ImageFolderDenseFileLists(data.Dataset):
                 input_img = transform(input_img)
 
                 data = {'input': input_img}
-            elif self.config["decoder"] is True and self.config["SSE"] is False:
-                """decoder(test)"""
+            elif self.config["decoder"] is True:
+                """decoder"""
                 if self.config["ZSL"] is True:
-                    index = self.GT_list[index]
-                input_map = np.full((256, 256), index)
-                input_vec, mask = self.index2vec(input_map)
-                # input_vec to tensor
-                input_vec = torch.from_numpy(input_vec)
-                data = {'input': input_vec}
+                    """ZSL"""
+                    input_map = np.full((256, 256), index)
+                    target_map = input_map.copy()
+                    target_map = tr_map_te[target_map]
+                    input_vec, mask = self.index2vec(input_map)
+                    # input_vec to tensor
+                    input_vec = torch.from_numpy(input_vec)
+                    # target_map to tensor
+                    target_map = torch.from_numpy(target_map)
+
+                    data = {'input': input_vec, 'target': target_map}
+                else:
+                    """normal"""
+                    input_map = np.full((256, 256), index)
+                    target_map = input_map.copy()
+                    input_vec, mask = self.index2vec(input_map)
+                    # input_vec to tensor
+                    input_vec = torch.from_numpy(input_vec)
+                    # target_map to tensor
+                    target_map = torch.from_numpy(target_map)
+
+                    data = {'input': input_vec, 'target': target_map}
+            else:
+                sys.exit("model is not defined")
 
         return data
 
@@ -498,6 +553,7 @@ class ImageFolderDenseFileLists(data.Dataset):
 
     def padding(self, input_img, target_img, map_img):
         """padding tensor"""
+        max_size = 640  # unused parameter (max size of image)
         input_img2 = np.asarray(input_img)
         height = input_img2.shape[0]
         width = input_img2.shape[1]
