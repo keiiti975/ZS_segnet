@@ -228,6 +228,7 @@ def main():
                149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
     GT_num = len(GT_list)
     print("evaluating ...")
+    accuracy_train = []
     accuracy_sum = np.zeros(GT_num)
     accuracy_count = np.zeros(GT_num)
     for i in tqdm(range(length)):
@@ -245,7 +246,22 @@ def main():
                 acc_te = result.mean()
                 accuracy_sum[j] += acc_te
                 accuracy_count[j] += 1
-
+        """
+        msk = np.isin(target_img, GT_list)
+        ctarget = target_img.copy()
+        target_img[ctarget > 181] = 182
+        tr_result = target_img[~msk]==predict_img[~msk]
+        if len(tr_result) != 0:
+            acc_tr = tr_result.mean()
+            accuracy_train.append(acc_tr)
+        """
+    
+    """
+    acc_tr = np.array(accuracy_train)
+    acc1 = np.mean(acc_tr[~np.isnan(acc_tr)])
+    print(acc1)
+    """
+    
     Acc = accuracy_sum / accuracy_count
 
     if not os.path.isdir("./eval"):
@@ -270,6 +286,7 @@ def main():
     print("mAcc=%f" % (mAcc))
     f.write("mAcc=" + str(mAcc) + "\n")
     f.close()
+    
 
 
 if __name__ == '__main__':

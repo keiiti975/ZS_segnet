@@ -98,12 +98,19 @@ class ImageFolderDenseFileLists(data.Dataset):
             target_img = np.asarray(target_img)
             target_img2 = target_img.copy()
             target_img2[target_img > 181]=182
+            lbls, counts = np.unique(target_img2, return_counts=True)
+            count_sum = counts.sum()
+            weights = np.zeros(183, 'float32')
+            for i in range(lbls.shape[0]):
+                ratio = count_sum/counts[i]
+                weights[lbls[i]] = ratio
+            weights[-1] = 0.
             target_img2 = torch.from_numpy(target_img2).long()
 
             # map_img to tensor
             target_map = np.asarray(map_img)
             data = {'input': input_img, 'target': target_img2,
-                    'map': target_map}
+                    'map': target_map, 'weights': weights}
         else:
             """test"""
             # load path

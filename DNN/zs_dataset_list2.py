@@ -583,12 +583,22 @@ class ImageFolderDenseFileLists(data.Dataset):
     def index2vec(self, img):
         """index to semantic vector and return annotations, mask"""
         image = img.copy()
-        mask = np.ones(img.shape, dtype='int32')
+        mask = np.ones(img.shape, dtype='float32')
         image[img > 181] = 182
-        mask[img > 181] = 0
+        mask[img > 181] = 0.
+        lbls, counts = np.unique(image, return_counts=True)
+        if lbls[-1]==182 and lbls.shape[0] > 1:
+            lbls = lbls[:-1]
+            counts = counts[:-1]
+        count_sum = counts.sum()
+        class_num = lbls.shape[0]
+        for i in range(class_num):
+            lbl = lbls[i]
+            ratio = count_sum/counts[i]
+            mask[image == lbl] *= ratio
+        mask = mask ** 0.5
         annotation = self.v_array[image]
         annotation = annotation.transpose(2, 0, 1)
-        mask = mask.astype('float32')
         return annotation, mask[None, :, :]
 
     def getMask(self, img):
