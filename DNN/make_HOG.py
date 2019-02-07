@@ -8,8 +8,8 @@ import os.path
 from tqdm import tqdm
 from multiprocessing import Pool
 
-input_dir = "/home/tanida/workspace/ZS_segnet/DNN/data/train"
-output_dir = "/home/tanida/workspace/ZS_segnet/DNN/data/train/input_HOG"
+input_dir = "/home/tanida/workspace/ZS_segnet/data/train"
+output_dir = "/home/tanida/workspace/ZS_segnet/data/train/input_HOG"
 filelist = os.path.join(input_dir, "names.txt")
 filenames = open(filelist, 'r')
 lines = filenames.readlines()
@@ -27,18 +27,3 @@ for filename in tqdm(lines):
                         cells_per_block=(1, 1), visualize=True, multichannel=True)
     hog_image_rescaled = exposure.rescale_intensity(hog_image, in_range=(0, 10))
     Image.fromarray(np.uint8(hog_image_rescaled*256)).save(os.path.join(output_dir, filename+".png"))
-
-"""
-def making(filename):
-    img = cv2.imread(os.path.join(input_dir, filename+".jpg"))
-    if len(img.shape) == 3:
-        fd, hog_image = hog(img, orientations=8, pixels_per_cell=(8, 8),
-                            cells_per_block=(1, 1), visualize=True, multichannel=True)
-        hog_image_rescaled = exposure.rescale_intensity(hog_image, in_range=(0, 10))
-        Image.fromarray(np.uint8(hog_image_rescaled*256)).save(os.path.join(output_dir, filename+".png"))
-    return None
-    
-if __name__ == "__main__":
-    p = Pool(processes=1)
-    p.map(making, lines)
-"""

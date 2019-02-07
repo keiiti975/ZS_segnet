@@ -9,7 +9,7 @@ import argparse
 
 parser = argparse.ArgumentParser(description='evaluate ZS_segnet')
 parser.add_argument('path', type=str,
-                    help='load image path(=project name)  (place: "./data") ')
+                    help='load image path(=project name)  (place: "/home/tanida/workspace/ZS_segnet/data") ')
 args = parser.parse_args()
 
 tr_map_te = np.asarray([
@@ -219,9 +219,9 @@ def make_dataset(target_dir, predict_dir, filenames):
 
 
 def main():
-    target_dir = './data/test/target'
-    predict_dir = os.path.join('./data', args.path)
-    filenames = './data/test/names.txt'
+    target_dir = '/home/tanida/workspace/ZS_segnet/data/test/target'
+    predict_dir = os.path.join('/home/tanida/workspace/ZS_segnet/data', args.path)
+    filenames = '/home/tanida/workspace/ZS_segnet/data/test/names.txt'
     image_path = make_dataset(target_dir, predict_dir, filenames)
     length = len(image_path)
     """ZSL,GZSL
