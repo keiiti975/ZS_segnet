@@ -224,8 +224,18 @@ def main():
     filenames = './data/test/names.txt'
     image_path = make_dataset(target_dir, predict_dir, filenames)
     length = len(image_path)
+    """ZSL,GZSL
     GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
                149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
+    """
+    #"""train
+    GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
+               149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99, 182]
+    #"""
+    #"""opt
+    opt_list = [31, 27, 10, 73, 57, 50, 46, 45, 128, 106, 97]
+    GT_list.extend(opt_list)
+    #"""
     GT_num = len(GT_list)
     print("evaluating ...")
     accuracy_train = []
@@ -236,6 +246,7 @@ def main():
         predict_img = cv2.imread(image_path[i][1], cv2.IMREAD_GRAYSCALE)
         if predict_img is None:
             continue
+        """ZSL
         ctarget = target_img.copy()
         target_img[ctarget > 181] = 182
         target_img = tr_map_te[target_img]
@@ -247,6 +258,18 @@ def main():
                 accuracy_sum[j] += acc_te
                 accuracy_count[j] += 1
         """
+        """GZSL
+        ctarget = target_img.copy()
+        target_img[ctarget > 181] = 182
+        for j in range(GT_num):
+            msk = np.isin(ctarget, GT_list[j])
+            result = predict_img[msk] == target_img[msk]
+            if len(result) != 0:
+                acc_te = result.mean()
+                accuracy_sum[j] += acc_te
+                accuracy_count[j] += 1
+        """
+        #"""train
         msk = np.isin(target_img, GT_list)
         ctarget = target_img.copy()
         target_img[ctarget > 181] = 182
@@ -254,14 +277,15 @@ def main():
         if len(tr_result) != 0:
             acc_tr = tr_result.mean()
             accuracy_train.append(acc_tr)
-        """
+        #"""
     
-    """
+    #"""train
     acc_tr = np.array(accuracy_train)
     acc1 = np.mean(acc_tr[~np.isnan(acc_tr)])
     print(acc1)
-    """
+    #"""
     
+    """ZSL,GZSL
     Acc = accuracy_sum / accuracy_count
 
     if not os.path.isdir("./eval"):
@@ -286,6 +310,7 @@ def main():
     print("mAcc=%f" % (mAcc))
     f.write("mAcc=" + str(mAcc) + "\n")
     f.close()
+    """
     
 
 

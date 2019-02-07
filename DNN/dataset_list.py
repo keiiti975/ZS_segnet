@@ -51,7 +51,7 @@ class ImageFolderDenseFileLists(data.Dataset):
 
     def __init__(self, input_root,
                  target_root, map_root,
-                 filenames, semantic_filename,
+                 filenames,
                  training, model, config, transform, USE_CUDA):
         """Init function."""
         if config["model"] is True:

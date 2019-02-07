@@ -15,8 +15,10 @@
     "input_root":"./data/train/input",
     "target_root":"./data/train/zs_target",
     "map_root":"./data/train/target",
+    "train_HOG_root":"./data/train/input_HOG",
+    "test_HOG_root":"./data/test/input_HOG",
     "filenames":"./data/train/zs_names.txt",
-    "semantic_filename":"./v_class/class1.txt",
+    "semantic_filename":"./v_class/class.txt",
     "project_dir":"./model/MSE_batch12",
     "model_load_pth":"./model/MSE_batch12/segnet.pth",
     "head_load_pth":"",
@@ -27,5 +29,7 @@
     "cos_similarity":"false",
     "jaccard_similarity":"false",
     "ZSL":"true",
-    "SSE":"false"
+    "SSE":"false",
+    "MASK":"false",
+    "HOG":"false"
 }

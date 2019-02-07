@@ -200,7 +200,7 @@ GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
            102, 175, 99]
 
 
-def make_dataset(input_dir, target_dir, map_dir, filenames, training):
+def make_dataset(input_dir, target_dir, map_dir, filenames, training, config):
     """Create the dataset."""
     images = []
     # deal with multiple input
@@ -227,17 +227,25 @@ def make_dataset(input_dir, target_dir, map_dir, filenames, training):
             item.append(os.path.join(map_dir, filename + ".png"))
         else:
             item.append(None)
+        
+        if config["HOG"] is True:
+            if training is True:
+                item.append(os.path.join(config["train_HOG_root"], filename + ".png"))
+            else:
+                item.append(os.path.join(config["test_HOG_root"], filename + ".png"))
+        else:
+            item.append(None)
 
         images.append(item)
 
     return images
 
 
-def make_vectors(filename, config, model, USE_CUDA):
+def make_vectors(config, model, USE_CUDA):
     """Create semantic_vector array"""
     vector_array = []
 
-    text_file = open(filename, 'r')
+    text_file = open(config["semantic_filename"], 'r')
     lines = text_file.readlines()
     text_file.close()
 
@@ -325,20 +333,20 @@ class ImageFolderDenseFileLists(data.Dataset):
 
     def __init__(self, input_root,
                  target_root, map_root,
-                 filenames, semantic_filename,
+                 filenames,
                  training, model, config, transform, USE_CUDA):
         """Init function."""
         if config["model"] is True:
             # get the lists of images
             imgs = make_dataset(input_root, target_root,
-                                map_root, filenames, training)
+                                map_root, filenames, training, config)
             self.imgs = imgs
             if len(imgs) == 0:
                 raise(RuntimeError(
                     "Found 0 images in subfolders of: " + input_root + "\n"))
 
         # get semantic_vector array
-        v_array = make_vectors(semantic_filename, config, model, USE_CUDA)
+        v_array = make_vectors(config, model, USE_CUDA)
         v_array = torch.from_numpy(v_array)
         v_array = F.normalize(v_array)
         v_array = v_array.numpy()
@@ -422,14 +430,33 @@ class ImageFolderDenseFileLists(data.Dataset):
                 input_img = self.transform(input_img)
                 target_img = self.transform(target_img)
                 map_img = self.transform(map_img)
-
+                
+                """
+                # input+HOG
+                if self.config["HOG"] is True:
+                    HOG_paths = self.imgs[index][3]
+                    HOG_img = self.loader(HOG_paths)
+                    HOG_img = self.transform(HOG_img)
+                    input_img = np.asarray(input_img)
+                    HOG_img = np.asarray(HOG_img)
+                    HOG_img = HOG_img * 255
+                    input_img = np.concatenate([input_img, HOG_img[:,:,None]], axis=2)
+                """
+                # HOG
+                if self.config["HOG"] is True:
+                    HOG_paths = self.imgs[index][3]
+                    HOG_img = self.loader(HOG_paths)
+                    HOG_img = self.transform(HOG_img)
+                    HOG_img = np.asarray(HOG_img)
+                    input_img = HOG_img[:,:,None]
+                    
                 # input_img to tensor
                 transform = transforms.Compose([transforms.ToTensor()])
                 input_img = transform(input_img)
 
                 # target_img to tensor
                 target_img = np.asarray(target_img)
-                target_img, mask = self.index2vec(target_img)
+                target_img, mask = self.index2vec(target_img, self.config["MASK"])
                 target_img = torch.from_numpy(target_img)
 
                 # map_img to tensor
@@ -444,7 +471,7 @@ class ImageFolderDenseFileLists(data.Dataset):
                     input_map = np.full((1, 1), index)
                     target_map = input_map.copy()
                     target_map = self.seen_tr_map_te[target_map]
-                    input_vec, mask = self.index2vec(input_map)
+                    input_vec, mask = self.index2vec(input_map, self.config["MASK"])
                     # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)
                     # target_map to tensor
@@ -455,7 +482,7 @@ class ImageFolderDenseFileLists(data.Dataset):
                     """normal"""
                     input_map = np.full((1, 1), index)
                     target_map = input_map.copy()
-                    input_vec, mask = self.index2vec(input_map)
+                    input_vec, mask = self.index2vec(input_map, self.config["MASK"])
                     # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)
                     # target_map to tensor
@@ -496,6 +523,15 @@ class ImageFolderDenseFileLists(data.Dataset):
 
                 # apply transformation
                 input_img = self.transform(input_img)
+                
+                if self.config["HOG"] is True:
+                    HOG_paths = self.imgs[index][3]
+                    HOG_img = self.loader(HOG_paths)
+                    HOG_img = self.transform(HOG_img)
+                    input_img = np.asarray(input_img)
+                    HOG_img = np.asarray(HOG_img)
+                    HOG_img = HOG_img * 255
+                    input_img = np.concatenate([input_img, HOG_img[:,:,None]], axis=2)
 
                 # input_img to tensor
                 transform = transforms.Compose([transforms.ToTensor()])
@@ -509,7 +545,7 @@ class ImageFolderDenseFileLists(data.Dataset):
                     input_map = np.full((256, 256), index)
                     target_map = input_map.copy()
                     target_map = tr_map_te[target_map]
-                    input_vec, mask = self.index2vec(input_map)
+                    input_vec, mask = self.index2vec(input_map, self.config["MASK"])
                     # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)
                     # target_map to tensor
@@ -520,7 +556,7 @@ class ImageFolderDenseFileLists(data.Dataset):
                     """normal"""
                     input_map = np.full((256, 256), index)
                     target_map = input_map.copy()
-                    input_vec, mask = self.index2vec(input_map)
+                    input_vec, mask = self.index2vec(input_map, self.config["MASK"])
                     # input_vec to tensor
                     input_vec = torch.from_numpy(input_vec)
                     # target_map to tensor
@@ -580,12 +616,24 @@ class ImageFolderDenseFileLists(data.Dataset):
         map_img = transform_target(map_img)
         return input_img, target_img, map_img
 
-    def index2vec(self, img):
+    def index2vec(self, img, MASK):
         """index to semantic vector and return annotations, mask"""
         image = img.copy()
         mask = np.ones(img.shape, dtype='float32')
         image[img > 181] = 182
         mask[img > 181] = 0.
+        if MASK is True:
+            lbls, counts = np.unique(image, return_counts=True)
+            if lbls[-1]==182 and lbls.shape[0] > 1:
+                lbls = lbls[:-1]
+                counts = counts[:-1]
+            count_sum = counts.sum()
+            class_num = lbls.shape[0]
+            for i in range(class_num):
+                lbl = lbls[i]
+                ratio = count_sum/counts[i]
+                mask[image == lbl] *= ratio
+            mask = mask ** 0.5
         annotation = self.v_array[image]
         annotation = annotation.transpose(2, 0, 1)
         return annotation, mask[None, :, :]
