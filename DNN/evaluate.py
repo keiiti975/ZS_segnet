@@ -6,6 +6,7 @@ import cv2
 from tqdm import tqdm
 from datetime import datetime
 import argparse
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(description='evaluate ZS_segnet')
 parser.add_argument('path', type=str,
@@ -224,40 +225,54 @@ def main():
     filenames = '/home/tanida/workspace/ZS_segnet/data/test/names.txt'
     image_path = make_dataset(target_dir, predict_dir, filenames)
     length = len(image_path)
-    """ZSL,GZSL
+    #"""ZSL,GZSL
     GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
                149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99]
-    """
-    #"""train
+    #"""
+    """train
     GT_list = [35, 26, 23, 9, 1, 83, 77, 72, 61, 51, 43, 154, 148,
                149, 105, 123, 112, 127, 152, 167, 109, 179, 116, 102, 175, 99, 182]
-    #"""
-    #"""opt
+    """
+    """opt
     opt_list = [31, 27, 10, 73, 57, 50, 46, 45, 128, 106, 97]
     GT_list.extend(opt_list)
-    #"""
+    """
     GT_num = len(GT_list)
     print("evaluating ...")
     accuracy_train = []
     accuracy_sum = np.zeros(GT_num)
     accuracy_count = np.zeros(GT_num)
+    heatmap_all = np.zeros((26,26))
     for i in tqdm(range(length)):
         target_img = cv2.imread(image_path[i][0], cv2.IMREAD_GRAYSCALE)
         predict_img = cv2.imread(image_path[i][1], cv2.IMREAD_GRAYSCALE)
         if predict_img is None:
             continue
-        """ZSL
+        #"""ZSL
         ctarget = target_img.copy()
         target_img[ctarget > 181] = 182
         target_img = tr_map_te[target_img]
+        heatmap = []
         for j in range(GT_num):
             msk = np.isin(ctarget, GT_list[j])
             result = predict_img[msk] == target_img[msk]
+            if len(result) == 0:
+                heatmap.append(np.zeros(26))
+            else:
+                idx, count = np.unique(predict_img[msk], return_counts=True)
+                counts = np.zeros((26))
+                index = 0
+                for i in idx:
+                    counts[i] = count[index]
+                    index += 1
+                heatmap.append(counts)
             if len(result) != 0:
                 acc_te = result.mean()
                 accuracy_sum[j] += acc_te
                 accuracy_count[j] += 1
-        """
+        heatmap = np.array(heatmap)
+        heatmap_all = heatmap_all + heatmap
+        #"""
         """GZSL
         ctarget = target_img.copy()
         target_img[ctarget > 181] = 182
@@ -269,7 +284,7 @@ def main():
                 accuracy_sum[j] += acc_te
                 accuracy_count[j] += 1
         """
-        #"""train
+        """train
         msk = np.isin(target_img, GT_list)
         ctarget = target_img.copy()
         target_img[ctarget > 181] = 182
@@ -277,15 +292,23 @@ def main():
         if len(tr_result) != 0:
             acc_tr = tr_result.mean()
             accuracy_train.append(acc_tr)
-        #"""
+        """
     
-    #"""train
+    """train
     acc_tr = np.array(accuracy_train)
     acc1 = np.mean(acc_tr[~np.isnan(acc_tr)])
     print(acc1)
-    #"""
+    """
     
-    """ZSL,GZSL
+    #"""ZSL,GZSL
+    #for i in range(26):
+    #    num = heatmap_all[i,:].sum()
+    #    for j in range(26):
+    #        heatmap_all[i,j] = heatmap_all[i,j]/num
+    #print(heatmap_all)
+    #fig, axe = plt.subplots()
+    
+    
     Acc = accuracy_sum / accuracy_count
 
     if not os.path.isdir("./eval"):
@@ -310,7 +333,7 @@ def main():
     print("mAcc=%f" % (mAcc))
     f.write("mAcc=" + str(mAcc) + "\n")
     f.close()
-    """
+    #"""
     
 
 

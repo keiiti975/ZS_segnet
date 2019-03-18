@@ -637,11 +637,3 @@ class ImageFolderDenseFileLists(data.Dataset):
         annotation = self.v_array[image]
         annotation = annotation.transpose(2, 0, 1)
         return annotation, mask[None, :, :]
-
-    def getMask(self, img):
-        """make mask"""
-        mask = np.ones(img.shape, dtype='int32')
-        mask[img > 181] = 0
-        mask1 = mask.astype('int64')
-        mask2 = mask[None, :, :].astype('float32')
-        return mask1, mask2
